@@ -124,3 +124,7 @@ pnpm test
 
 Android APK only. No iOS, user accounts, rate limits, mainland mirror, release channels, or analytics
 beyond download counters. D1/Workers/R2 platform limits still apply.
+
+## License
+
+[MIT](./LICENSE)
