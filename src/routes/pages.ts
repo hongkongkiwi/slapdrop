@@ -51,7 +51,7 @@ const renderBuild = (
     locale,
     `<header><p class="eyebrow">${strings.latest}</p><h1>${escapeHtml(app.name)}</h1><p>${strings.version} ${escapeHtml(build.versionName)} (${build.versionCode})</p></header>
 <section class="release"><div class="qr">${qrSvg(shareUrl)}</div><div><p>${strings.size}: ${formatBytes(build.sizeBytes)}</p><p>${strings.uploaded}: ${escapeHtml(build.uploadedAt)}</p><p>${strings.downloads}: ${build.downloads}</p>${install}</div></section>
-<details><summary>${strings.guide}</summary><p>${strings.guideText}</p></details>${historyRows ? `<section><h2>${strings.history}</h2><ul>${historyRows}</ul></section>` : ''}`,
+<details><summary>${strings.guide}</summary><p>${strings.guideText}</p></details>${build.notes ? `<section><h2>${strings.notes}</h2><p class="notes">${escapeHtml(build.notes)}</p></section>` : ''}${historyRows ? `<section><h2>${strings.history}</h2><ul>${historyRows}</ul></section>` : ''}`,
   )
 }
 

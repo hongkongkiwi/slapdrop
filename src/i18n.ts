@@ -2,6 +2,8 @@ export type Locale = 'en' | 'zh-Hant' | 'zh-Hans'
 
 const copy = {
   en: {
+    appsList: 'App releases',
+    notes: 'Release notes',
     install: 'Install APK',
     download: 'Download APK',
     latest: 'Latest release',
@@ -20,6 +22,8 @@ const copy = {
     unavailable: 'This release is unavailable.',
   },
   'zh-Hant': {
+    appsList: '應用發布',
+    notes: '版本說明',
     install: '安裝 APK',
     download: '下載 APK',
     latest: '最新版本',
@@ -37,6 +41,8 @@ const copy = {
     unavailable: '此版本無法使用。',
   },
   'zh-Hans': {
+    appsList: '应用发布',
+    notes: '版本说明',
     install: '安装 APK',
     download: '下载 APK',
     latest: '最新版本',

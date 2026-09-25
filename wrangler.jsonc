@@ -30,5 +30,9 @@
     "BASE_URL": "http://localhost:8787",
     "R2_ACCOUNT_ID": "REPLACE_WITH_ACCOUNT_ID",
     "R2_BUCKET_NAME": "slapdrop-apks"
+  },
+
+  "triggers": {
+    "crons": ["17 * * * *"]
   }
 }
