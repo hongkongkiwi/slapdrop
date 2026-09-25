@@ -2,7 +2,7 @@
   {
     "AllowedOrigins": ["https://drop.example.com"],
     "AllowedMethods": ["PUT"],
-    "AllowedHeaders": ["If-None-Match"],
+    "AllowedHeaders": ["If-None-Match", "Content-Type"],
     "ExposeHeaders": ["ETag"],
     "MaxAgeSeconds": 3600
   }

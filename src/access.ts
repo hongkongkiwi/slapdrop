@@ -1,16 +1,13 @@
-import type { Context, MiddlewareHandler } from 'hono'
+import type { Context } from 'hono'
 import type { Env } from './env'
 
 const encoder = new TextEncoder()
-const decoder = new TextDecoder()
+const maxFailures = 5
+const windowMs = 15 * 60 * 1000
+const lockMs = 60 * 60 * 1000
 
 const base64url = (bytes: Uint8Array) =>
   btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
-
-const fromBase64url = (value: string) => {
-  const padded = value.replaceAll('-', '+').replaceAll('_', '/') + '='.repeat((4 - (value.length % 4)) % 4)
-  return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0))
-}
 
 const hash = async (value: string) => {
   const bytes = await crypto.subtle.digest('SHA-256', encoder.encode(value))
@@ -66,12 +63,48 @@ export const grantAppAccess = async (c: Context<{ Bindings: Env }>, appId: strin
   )
 }
 
-export const requireAppAccess = (appId: string): MiddlewareHandler<{ Bindings: Env }> => async (c, next) => {
-  if (await hasAppAccess(c.req.raw, appId, c.env)) await next()
-  else return c.text('Passcode required', 401)
-}
-
 export const passcodeMatches = async (passcode: string, expectedHash: string, secret: string) =>
   equal(await hashPasscode(passcode, secret), expectedHash)
 
-export const decodePasscode = (value: string) => decoder.decode(fromBase64url(value))
+export const passcodeClientKey = (request: Request) => request.headers.get('cf-connecting-ip') ?? 'unknown'
+
+/** Permits five failed guesses per IP/app per 15 minutes, then locks that pair for one hour. */
+export const verifyPasscodeAttempt = async (
+  env: Env,
+  appId: string,
+  expectedHash: string,
+  passcode: string,
+  clientKey: string,
+): Promise<'ok' | 'invalid' | 'locked'> => {
+  const now = Date.now()
+  const attempt = await env.DB.prepare(
+    'SELECT id, failures, window_started_at, locked_until FROM passcode_attempts WHERE app_id = ? AND client_key = ?',
+  )
+    .bind(appId, clientKey)
+    .first<{ id: string; failures: number; window_started_at: string; locked_until: string | null }>()
+  if (attempt?.locked_until && Date.parse(attempt.locked_until) > now) return 'locked'
+
+  if (await passcodeMatches(passcode, expectedHash, env.APP_SECRET)) {
+    if (attempt) await env.DB.prepare('DELETE FROM passcode_attempts WHERE id = ?').bind(attempt.id).run()
+    return 'ok'
+  }
+
+  const resetWindow = !attempt || now - Date.parse(attempt.window_started_at) >= windowMs
+  const failures = (resetWindow ? 0 : attempt.failures) + 1
+  const windowStartedAt = new Date(resetWindow ? now : Date.parse(attempt.window_started_at)).toISOString()
+  const lockedUntil = failures >= maxFailures ? new Date(now + lockMs).toISOString() : null
+  if (attempt) {
+    await env.DB.prepare(
+      'UPDATE passcode_attempts SET failures = ?, window_started_at = ?, locked_until = ? WHERE id = ?',
+    )
+      .bind(failures, windowStartedAt, lockedUntil, attempt.id)
+      .run()
+  } else {
+    await env.DB.prepare(
+      'INSERT INTO passcode_attempts (id, app_id, client_key, failures, window_started_at, locked_until) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+      .bind(crypto.randomUUID(), appId, clientKey, failures, windowStartedAt, lockedUntil)
+      .run()
+  }
+  return lockedUntil ? 'locked' : 'invalid'
+}

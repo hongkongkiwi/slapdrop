@@ -40,6 +40,21 @@ export const builds = sqliteTable(
   ],
 )
 
+export const passcodeAttempts = sqliteTable(
+  'passcode_attempts',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => apps.id, { onDelete: 'cascade' }),
+    clientKey: text('client_key').notNull(),
+    failures: integer('failures').notNull().default(0),
+    windowStartedAt: text('window_started_at').notNull(),
+    lockedUntil: text('locked_until'),
+  },
+  (table) => [uniqueIndex('passcode_attempts_app_client_unique').on(table.appId, table.clientKey)],
+)
+
 export const uploadIntents = sqliteTable(
   'upload_intents',
   {

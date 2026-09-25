@@ -47,6 +47,8 @@ npx wrangler deploy
 npx wrangler r2 bucket cors set slapdrop-apks --file docs/r2-cors.json
 ```
 
+The policy must permit `PUT`, `If-None-Match`, and `Content-Type`; browser uploads preflight those.
+
 ## Local development
 
 ```sh

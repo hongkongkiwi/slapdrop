@@ -21,7 +21,7 @@ const slugSchema = z
 const createAppSchema = z.object({
   slug: slugSchema,
   name: z.string().min(1).max(120),
-  passcode: z.string().min(4).max(128).optional(),
+  passcode: z.string().min(12).max(128).optional(),
 })
 
 const intentSchema = z.object({

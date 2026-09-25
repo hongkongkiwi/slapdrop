@@ -14,14 +14,14 @@ describe('upload API', () => {
     const response = await SELF.fetch('https://example.com/api/apps', {
       method: 'POST',
       headers: { ...auth, 'content-type': 'application/json' },
-      body: JSON.stringify({ slug: 'protected-app', name: 'Protected App', passcode: 'letmein' }),
+      body: JSON.stringify({ slug: 'protected-app', name: 'Protected App', passcode: 'a-long-test-passcode' }),
     })
 
     expect(response.status).toBe(201)
     const app = await env.DB.prepare('SELECT passcode_hash FROM apps WHERE slug = ?')
       .bind('protected-app')
       .first<{ passcode_hash: string }>()
-    expect(app?.passcode_hash).not.toBe('letmein')
+    expect(app?.passcode_hash).not.toBe('a-long-test-passcode')
     expect(app?.passcode_hash).toBeTruthy()
   })
 
