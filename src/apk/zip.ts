@@ -17,6 +17,8 @@ const ZIP64_EOCD_SIGNATURE = 0x06064b50
 const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50
 const LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50
 const MAX_EOCD_WINDOW = 65_557
+const MAX_CENTRAL_DIRECTORY_BYTES = 16 * 1024 * 1024
+const MAX_ZIP_ENTRIES = 100_000
 
 const textDecoder = new TextDecoder()
 
@@ -122,6 +124,8 @@ const centralDirectoryFromTail = async (source: ByteSource): Promise<CentralDire
 
 export const listZipEntries = async (source: ByteSource): Promise<ZipEntry[]> => {
   const directory = await centralDirectoryFromTail(source)
+  if (directory.size > MAX_CENTRAL_DIRECTORY_BYTES) fail('central directory too large')
+  if (directory.entries > MAX_ZIP_ENTRIES) fail('too many entries')
   if (directory.offset + directory.size > source.size)
     fail('central directory lies outside archive')
   const bytes = await source.read(directory.offset, directory.size)

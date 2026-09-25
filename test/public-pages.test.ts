@@ -1,7 +1,7 @@
 import { env, SELF } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
 
-const seedRelease = async (passcodeHash: string | null = null) => {
+const seedRelease = async (passcodeHash: string | null = null, versionName = '1.0.0') => {
   const appId = crypto.randomUUID()
   const buildId = crypto.randomUUID()
   const slug = `demo-${crypto.randomUUID().slice(0, 8)}`
@@ -14,7 +14,7 @@ const seedRelease = async (passcodeHash: string | null = null) => {
     ),
     env.DB.prepare(
       'INSERT INTO builds (id, app_id, version_name, version_code, r2_key, size_bytes, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    ).bind(buildId, appId, '1.0.0', 1, `builds/${buildId}.apk`, 4, 'ci'),
+    ).bind(buildId, appId, versionName, 1, `builds/${buildId}.apk`, 4, 'ci'),
   ])
   await env.R2.put(`builds/${buildId}.apk`, new Uint8Array([0x50, 0x4b, 0x03, 0x04]))
   return { slug, buildId }
@@ -47,5 +47,15 @@ describe('public installation pages', () => {
     )
     expect(response.headers.get('content-disposition')).toContain('.apk')
     expect(new Uint8Array(await response.arrayBuffer())).toHaveLength(4)
+  })
+
+  it('sanitizes version names in the download filename', async () => {
+    const { buildId } = await seedRelease(null, '1.0"evil')
+    const response = await SELF.fetch(`https://example.com/d/${buildId}.apk`)
+
+    expect(response.status).toBe(200)
+    const disposition = response.headers.get('content-disposition') ?? ''
+    expect(disposition).toContain('1.0_evil')
+    expect(disposition).not.toContain('evil"')
   })
 })

@@ -21,6 +21,10 @@ describe('upload API', () => {
       .first<{ passcode_hash: string }>()
     expect(app?.passcode_hash).not.toBe('a-long-test-passcode')
     expect(app?.passcode_hash).toBeTruthy()
+
+    const list = await SELF.fetch('https://example.com/api/apps', { headers: auth })
+    expect(list.status).toBe(200)
+    expect(await list.text()).not.toContain('passcode')
   })
 
   it('creates an app and a direct R2 upload intent', async () => {

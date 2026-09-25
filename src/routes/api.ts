@@ -1,4 +1,4 @@
-import { and, desc, eq, lt } from 'drizzle-orm'
+import { and, desc, eq, lt, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { hashPasscode } from '../access'
@@ -87,18 +87,43 @@ const cleanupExpiredUploads = async (env: Env) => {
   const expired = await database
     .select()
     .from(uploadIntents)
-    .where(lt(uploadIntents.expiresAt, new Date().toISOString()))
+    .where(
+      and(
+        lt(uploadIntents.expiresAt, new Date().toISOString()),
+        ne(uploadIntents.state, 'validating'),
+      ),
+    )
   await Promise.all(expired.map((intent) => env.R2.delete(intent.r2Key)))
   if (expired.length)
     await database
       .delete(uploadIntents)
-      .where(lt(uploadIntents.expiresAt, new Date().toISOString()))
+      .where(
+        and(
+          lt(uploadIntents.expiresAt, new Date().toISOString()),
+          ne(uploadIntents.state, 'validating'),
+        ),
+      )
 }
+
+export { cleanupExpiredUploads }
 
 export const api = new Hono<{ Bindings: Env; Variables: Variables }>()
 api.use('*', uploaderAuth)
 
-api.get('/apps', async (c) => c.json(await db(c.env).select().from(apps).orderBy(apps.name)))
+api.get('/apps', async (c) =>
+  c.json(
+    await db(c.env)
+      .select({
+        id: apps.id,
+        slug: apps.slug,
+        name: apps.name,
+        packageName: apps.packageName,
+        createdAt: apps.createdAt,
+      })
+      .from(apps)
+      .orderBy(apps.name),
+  ),
+)
 
 api.post('/apps', async (c) => {
   const body = await parse(c.req.raw, createAppSchema)

@@ -15,16 +15,14 @@ downloads.get('/d/:id', async (c) => {
 
   const object = await c.env.R2.get(release.build.r2Key)
   if (!object) return c.text('Release file not found', 404)
+  const safeVersion = release.build.versionName.replace(/[^\w.-]/g, '_')
   c.executionCtx.waitUntil(
     c.env.DB.prepare('UPDATE builds SET downloads = downloads + 1 WHERE id = ?')
       .bind(release.build.id)
       .run(),
   )
   c.header('Content-Type', 'application/vnd.android.package-archive')
-  c.header(
-    'Content-Disposition',
-    `attachment; filename="${release.app.slug}-${release.build.versionName}.apk"`,
-  )
+  c.header('Content-Disposition', `attachment; filename="${release.app.slug}-${safeVersion}.apk"`)
   c.header('Content-Length', String(object.size))
   return c.body(object.body)
 })

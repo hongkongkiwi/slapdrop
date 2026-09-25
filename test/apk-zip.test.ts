@@ -36,7 +36,7 @@ interface TestEntry {
   compressed?: boolean
 }
 
-const testZip = async (entries: TestEntry[]) => {
+const testZip = async (entries: TestEntry[], overrides: { directorySize?: number } = {}) => {
   const locals: Uint8Array[] = []
   const central: Uint8Array[] = []
   let localOffset = 0
@@ -97,7 +97,7 @@ const testZip = async (entries: TestEntry[]) => {
     u16(0),
     u16(entries.length),
     u16(entries.length),
-    u32(centralBytes.byteLength),
+    u32(overrides.directorySize ?? centralBytes.byteLength),
     u32(localBytes.byteLength),
     u16(0),
   )
@@ -138,6 +138,13 @@ describe('APK ZIP reader', () => {
   })
 
   it('rejects archives without an EOCD record', async () => {
-    await expect(listZipEntries(source(encoder.encode('not a zip')))).rejects.toThrow('EOCD record')
+    await expect(listZipEntries(source(encoder.encode('not a zip')))).rejects.toThrow('EOCD')
+  })
+
+  it('rejects archives declaring an oversized central directory', async () => {
+    const zip = await testZip([{ name: 'a.txt', content: 'a' }], {
+      directorySize: 17 * 1024 * 1024,
+    })
+    await expect(listZipEntries(source(zip))).rejects.toThrow('central directory too large')
   })
 })

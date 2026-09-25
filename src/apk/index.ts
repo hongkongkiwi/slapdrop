@@ -4,12 +4,20 @@ import { type ByteSource, listZipEntries, readZipEntry } from './zip'
 export type { ApkManifest } from './manifest'
 export type { ByteSource } from './zip'
 
+const MAX_MANIFEST_BYTES = 4 * 1024 * 1024
+
 /** Reads only the APK ZIP directory plus AndroidManifest.xml bytes. */
 export const readApkManifest = async (source: ByteSource): Promise<ApkManifest> => {
   const manifestEntry = (await listZipEntries(source)).find(
     (entry) => entry.name === 'AndroidManifest.xml',
   )
   if (!manifestEntry) throw new Error('Invalid APK: AndroidManifest.xml not found')
+  if (
+    manifestEntry.compressedSize > MAX_MANIFEST_BYTES ||
+    manifestEntry.uncompressedSize > MAX_MANIFEST_BYTES
+  ) {
+    throw new Error('Invalid APK: AndroidManifest.xml implausibly large')
+  }
   return parseAndroidManifest(await readZipEntry(source, manifestEntry))
 }
 
