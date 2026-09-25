@@ -58,7 +58,8 @@ const stringPool = (
   const stringsStart = u32(bytes, offset + 20)
   const offsetsStart = offset + headerSize
   const dataStart = offset + stringsStart
-  if (offsetsStart + count * 4 > offset + size || dataStart > offset + size) fail('truncated string pool')
+  if (offsetsStart + count * 4 > offset + size || dataStart > offset + size)
+    fail('truncated string pool')
 
   return (index: number) => {
     if (index < 0 || index >= count) fail('string index out of range')
@@ -86,13 +87,21 @@ interface Attribute {
   value?: string | number
 }
 
-const attributes = (bytes: Uint8Array, offset: number, chunkSize: number, getString: (index: number) => string) => {
+const attributes = (
+  bytes: Uint8Array,
+  offset: number,
+  chunkSize: number,
+  getString: (index: number) => string,
+) => {
   const headerSize = u16(bytes, offset + 2)
-  if (headerSize < 36 || offset + headerSize > offset + chunkSize) fail('invalid start element')
+  if (headerSize < 16) fail('invalid start element')
   const attributeStart = u16(bytes, offset + 24)
   const attributeSize = u16(bytes, offset + 26)
   const attributeCount = u16(bytes, offset + 28)
   if (attributeSize < 20) fail('invalid attribute size')
+  if (offset + 16 + attributeStart + attributeCount * attributeSize > offset + chunkSize) {
+    fail('invalid start element')
+  }
 
   const result: Attribute[] = []
   const start = offset + 16 + attributeStart
@@ -130,7 +139,8 @@ export const parseAndroidManifest = (bytes: Uint8Array): ApkManifest => {
     const type = u16(bytes, cursor)
     const headerSize = u16(bytes, cursor + 2)
     const size = u32(bytes, cursor + 4)
-    if (headerSize < 8 || size < headerSize || cursor + size > bytes.byteLength) fail('invalid XML chunk')
+    if (headerSize < 8 || size < headerSize || cursor + size > bytes.byteLength)
+      fail('invalid XML chunk')
 
     if (type === RES_STRING_POOL_TYPE) getString = stringPool(bytes, cursor, headerSize, size)
     if (type === RES_XML_START_ELEMENT_TYPE) {

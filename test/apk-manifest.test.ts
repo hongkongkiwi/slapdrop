@@ -25,7 +25,8 @@ const u32 = (value: number) => {
   return bytes
 }
 
-const utf8Length = (length: number) => (length < 0x80 ? new Uint8Array([length]) : new Uint8Array([0x80 | (length >> 8), length & 0xff]))
+const utf8Length = (length: number) =>
+  length < 0x80 ? new Uint8Array([length]) : new Uint8Array([0x80 | (length >> 8), length & 0xff])
 
 const stringPool = (strings: string[]) => {
   const offsets: Uint8Array[] = []
@@ -34,14 +35,30 @@ const stringPool = (strings: string[]) => {
   for (const string of strings) {
     const value = encoder.encode(string)
     offsets.push(u32(offset))
-    const encoded = concat(utf8Length([...string].length), utf8Length(value.byteLength), value, new Uint8Array([0]))
+    const encoded = concat(
+      utf8Length([...string].length),
+      utf8Length(value.byteLength),
+      value,
+      new Uint8Array([0]),
+    )
     values.push(encoded)
     offset += encoded.byteLength
   }
   const headerSize = 28
   const stringsStart = headerSize + strings.length * 4
-  const body = concat(u32(strings.length), u32(0), u32(0x100), u32(stringsStart), u32(0), ...offsets, ...values)
-  return concat(u16(1), u16(headerSize), u32(headerSize + body.byteLength), body)
+  const valuesBytes = concat(...values)
+  return concat(
+    u16(1),
+    u16(headerSize),
+    u32(stringsStart + valuesBytes.byteLength),
+    u32(strings.length),
+    u32(0),
+    u32(0x100),
+    u32(stringsStart),
+    u32(0),
+    concat(...offsets),
+    valuesBytes,
+  )
 }
 
 const startElement = (
@@ -49,7 +66,6 @@ const startElement = (
   attributes: Array<{ name: number; value: number | string }>,
   strings: string[],
 ) => {
-  const headerSize = 36
   const attributeSize = 20
   const attributeBytes = attributes.map(({ name, value }) => {
     const isString = typeof value === 'string'
@@ -64,7 +80,6 @@ const startElement = (
     )
   })
   const extension = concat(
-    u32(0),
     u32(0xffffffff),
     u32(element),
     u16(20),
@@ -75,7 +90,7 @@ const startElement = (
     u16(0),
   )
   const body = concat(extension, ...attributeBytes)
-  return concat(u16(0x0102), u16(headerSize), u32(headerSize + body.byteLength), body)
+  return concat(u16(0x0102), u16(16), u32(16 + body.byteLength), u32(1), u32(0xffffffff), body)
 }
 
 const binaryManifest = () => {
@@ -122,6 +137,8 @@ describe('Android binary XML manifest parser', () => {
   })
 
   it('rejects plaintext XML', () => {
-    expect(() => parseAndroidManifest(encoder.encode('<manifest />'))).toThrow('not binary Android XML')
+    expect(() => parseAndroidManifest(encoder.encode('<manifest />'))).toThrow(
+      'not binary Android XML',
+    )
   })
 })

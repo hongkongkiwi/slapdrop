@@ -7,7 +7,8 @@ import type { Env } from '../env'
 import { localeFrom, t } from '../i18n'
 import { escapeHtml, formatBytes, page, qrSvg } from '../render'
 
-const appBySlug = (env: Env, slug: string) => db(env).query.apps.findFirst({ where: eq(apps.slug, slug) })
+const appBySlug = (env: Env, slug: string) =>
+  db(env).query.apps.findFirst({ where: eq(apps.slug, slug) })
 
 const buildUrl = (baseUrl: string, slug: string, versionCode: number) =>
   new URL(`/a/${encodeURIComponent(slug)}/v/${versionCode}`, baseUrl).toString()
@@ -31,10 +32,12 @@ const renderBuild = (
   const strings = t(locale)
   const shareUrl = buildUrl(baseUrl, app.slug, build.versionCode)
   const action = `/a/${encodeURIComponent(app.slug)}/access?next=${encodeURIComponent(`/d/${build.id}.apk`)}`
-  const errorMessage = error === 'locked' ? strings.lockedPasscode : error ? strings.invalidPasscode : ''
-  const install = app.passcodeHash && !hasAccess
-    ? `<form class="passcode" action="${action}" method="post"><label>${strings.passcode}<input name="passcode" type="password" required autocomplete="one-time-code"></label><button>${strings.unlock}</button>${errorMessage ? `<p class="error">${errorMessage}</p>` : ''}</form>`
-    : `<a class="button" href="/d/${build.id}.apk">${strings.install}</a>`
+  const errorMessage =
+    error === 'locked' ? strings.lockedPasscode : error ? strings.invalidPasscode : ''
+  const install =
+    app.passcodeHash && !hasAccess
+      ? `<form class="passcode" action="${action}" method="post"><label>${strings.passcode}<input name="passcode" type="password" required autocomplete="one-time-code"></label><button>${strings.unlock}</button>${errorMessage ? `<p class="error">${errorMessage}</p>` : ''}</form>`
+      : `<a class="button" href="/d/${build.id}.apk">${strings.install}</a>`
   const historyRows = history
     .filter((release) => release.id !== build.id)
     .map(
@@ -105,7 +108,13 @@ pages.post('/a/:slug/access', async (c) => {
   const passcode = form.get('passcode')
   const outcome =
     typeof passcode === 'string'
-      ? await verifyPasscodeAttempt(c.env, app.id, app.passcodeHash, passcode, passcodeClientKey(c.req.raw))
+      ? await verifyPasscodeAttempt(
+          c.env,
+          app.id,
+          app.passcodeHash,
+          passcode,
+          passcodeClientKey(c.req.raw),
+        )
       : 'invalid'
   if (outcome !== 'ok') return c.redirect(`/a/${encodeURIComponent(app.slug)}?error=${outcome}`)
   await grantAppAccess(c, app.id)
@@ -120,4 +129,5 @@ export const publicBuildFor = async (env: Env, id: string) => {
   return app ? { app, build } : undefined
 }
 
-export const canDownload = (request: Request, appId: string, env: Env) => hasAppAccess(request, appId, env)
+export const canDownload = (request: Request, appId: string, env: Env) =>
+  hasAppAccess(request, appId, env)

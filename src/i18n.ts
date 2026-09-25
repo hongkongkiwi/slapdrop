@@ -15,7 +15,8 @@ const copy = {
     invalidPasscode: 'Incorrect passcode.',
     lockedPasscode: 'Too many attempts. Try again in one hour.',
     guide: 'How to install',
-    guideText: 'Open the downloaded APK, then allow this browser to install unknown apps when Android asks.',
+    guideText:
+      'Open the downloaded APK, then allow this browser to install unknown apps when Android asks.',
     unavailable: 'This release is unavailable.',
   },
   'zh-Hant': {

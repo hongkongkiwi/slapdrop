@@ -7,7 +7,10 @@ const windowMs = 15 * 60 * 1000
 const lockMs = 60 * 60 * 1000
 
 const base64url = (bytes: Uint8Array) =>
-  btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
+  btoa(String.fromCharCode(...bytes))
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '')
 
 const hash = async (value: string) => {
   const bytes = await crypto.subtle.digest('SHA-256', encoder.encode(value))
@@ -30,7 +33,9 @@ const equal = (left: string, right: string) => {
   const rightBytes = encoder.encode(right)
   if (leftBytes.byteLength !== rightBytes.byteLength) return false
   let difference = 0
-  for (let index = 0; index < leftBytes.byteLength; index++) difference |= leftBytes[index]! ^ rightBytes[index]!
+  for (let index = 0; index < leftBytes.byteLength; index++) {
+    difference |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0)
+  }
   return difference === 0
 }
 
@@ -66,7 +71,8 @@ export const grantAppAccess = async (c: Context<{ Bindings: Env }>, appId: strin
 export const passcodeMatches = async (passcode: string, expectedHash: string, secret: string) =>
   equal(await hashPasscode(passcode, secret), expectedHash)
 
-export const passcodeClientKey = (request: Request) => request.headers.get('cf-connecting-ip') ?? 'unknown'
+export const passcodeClientKey = (request: Request) =>
+  request.headers.get('cf-connecting-ip') ?? 'unknown'
 
 /** Permits five failed guesses per IP/app per 15 minutes, then locks that pair for one hour. */
 export const verifyPasscodeAttempt = async (
@@ -81,17 +87,25 @@ export const verifyPasscodeAttempt = async (
     'SELECT id, failures, window_started_at, locked_until FROM passcode_attempts WHERE app_id = ? AND client_key = ?',
   )
     .bind(appId, clientKey)
-    .first<{ id: string; failures: number; window_started_at: string; locked_until: string | null }>()
+    .first<{
+      id: string
+      failures: number
+      window_started_at: string
+      locked_until: string | null
+    }>()
   if (attempt?.locked_until && Date.parse(attempt.locked_until) > now) return 'locked'
 
   if (await passcodeMatches(passcode, expectedHash, env.APP_SECRET)) {
-    if (attempt) await env.DB.prepare('DELETE FROM passcode_attempts WHERE id = ?').bind(attempt.id).run()
+    if (attempt)
+      await env.DB.prepare('DELETE FROM passcode_attempts WHERE id = ?').bind(attempt.id).run()
     return 'ok'
   }
 
   const resetWindow = !attempt || now - Date.parse(attempt.window_started_at) >= windowMs
   const failures = (resetWindow ? 0 : attempt.failures) + 1
-  const windowStartedAt = new Date(resetWindow ? now : Date.parse(attempt.window_started_at)).toISOString()
+  const windowStartedAt = new Date(
+    resetWindow ? now : Date.parse(attempt.window_started_at),
+  ).toISOString()
   const lockedUntil = failures >= maxFailures ? new Date(now + lockMs).toISOString() : null
   if (attempt) {
     await env.DB.prepare(

@@ -43,7 +43,11 @@ const u64 = (bytes: Uint8Array, offset: number) => {
   return Number(value)
 }
 
-const findSignatureBackwards = (bytes: Uint8Array, signature: number, start = bytes.byteLength - 4) => {
+const findSignatureBackwards = (
+  bytes: Uint8Array,
+  signature: number,
+  start = bytes.byteLength - 4,
+) => {
   for (let offset = start; offset >= 0; offset--) {
     if (u32(bytes, offset) === signature) return offset
   }
@@ -56,7 +60,10 @@ interface CentralDirectoryLocation {
   entries: number
 }
 
-const parseZip64Extra = (bytes: Uint8Array, needs: { size: boolean; compressed: boolean; offset: boolean }) => {
+const parseZip64Extra = (
+  bytes: Uint8Array,
+  needs: { size: boolean; compressed: boolean; offset: boolean },
+) => {
   let cursor = 0
   while (cursor + 4 <= bytes.byteLength) {
     const id = u16(bytes, cursor)
@@ -88,7 +95,8 @@ const centralDirectoryFromTail = async (source: ByteSource): Promise<CentralDire
   const tail = await source.read(tailOffset, source.size - tailOffset)
   const eocdOffset = findSignatureBackwards(tail, EOCD_SIGNATURE)
   if (eocdOffset < 0 || eocdOffset + 22 > tail.byteLength) fail('EOCD record not found')
-  if (eocdOffset + 22 + u16(tail, eocdOffset + 20) !== tail.byteLength) fail('invalid EOCD comment length')
+  if (eocdOffset + 22 + u16(tail, eocdOffset + 20) !== tail.byteLength)
+    fail('invalid EOCD comment length')
 
   const entries = u16(tail, eocdOffset + 10)
   const size = u32(tail, eocdOffset + 12)
@@ -103,7 +111,8 @@ const centralDirectoryFromTail = async (source: ByteSource): Promise<CentralDire
   }
   const zip64Offset = u64(tail, locatorOffset + 8)
   const zip64Head = await source.read(zip64Offset, 56)
-  if (u32(zip64Head, 0) !== ZIP64_EOCD_SIGNATURE || u64(zip64Head, 4) < 44) fail('invalid ZIP64 EOCD')
+  if (u32(zip64Head, 0) !== ZIP64_EOCD_SIGNATURE || u64(zip64Head, 4) < 44)
+    fail('invalid ZIP64 EOCD')
   return {
     entries: u64(zip64Head, 32),
     size: u64(zip64Head, 40),
@@ -113,7 +122,8 @@ const centralDirectoryFromTail = async (source: ByteSource): Promise<CentralDire
 
 export const listZipEntries = async (source: ByteSource): Promise<ZipEntry[]> => {
   const directory = await centralDirectoryFromTail(source)
-  if (directory.offset + directory.size > source.size) fail('central directory lies outside archive')
+  if (directory.offset + directory.size > source.size)
+    fail('central directory lies outside archive')
   const bytes = await source.read(directory.offset, directory.size)
   const entries: ZipEntry[] = []
   let cursor = 0
@@ -159,14 +169,17 @@ export const readZipEntry = async (source: ByteSource, entry: ZipEntry): Promise
   const header = await source.read(entry.localHeaderOffset, 30)
   if (u32(header, 0) !== LOCAL_FILE_HEADER_SIGNATURE) fail(`invalid local header for ${entry.name}`)
   const dataOffset = entry.localHeaderOffset + 30 + u16(header, 26) + u16(header, 28)
-  if (dataOffset + entry.compressedSize > source.size) fail(`entry ${entry.name} lies outside archive`)
+  if (dataOffset + entry.compressedSize > source.size)
+    fail(`entry ${entry.name} lies outside archive`)
   const bytes = await source.read(dataOffset, entry.compressedSize)
   if (entry.compressionMethod === 0) return bytes
-  if (entry.compressionMethod !== 8) fail(`unsupported compression method ${entry.compressionMethod}`)
+  if (entry.compressionMethod !== 8)
+    fail(`unsupported compression method ${entry.compressionMethod}`)
 
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))
   const decompressed = new Uint8Array(await new Response(stream).arrayBuffer())
-  if (decompressed.byteLength !== entry.uncompressedSize) fail(`invalid uncompressed size for ${entry.name}`)
+  if (decompressed.byteLength !== entry.uncompressedSize)
+    fail(`invalid uncompressed size for ${entry.name}`)
   return decompressed
 }
 

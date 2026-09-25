@@ -1,8 +1,8 @@
-import { and, desc, eq, gt, lt } from 'drizzle-orm'
+import { and, desc, eq, lt } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { getValidatedR2Object, r2SourceFromGet, readApkManifest } from '../apk'
 import { hashPasscode } from '../access'
+import { getValidatedR2Object, r2SourceFromGet, readApkManifest } from '../apk'
 import { uploaderAuth, type Variables } from '../auth'
 import { db } from '../db/client'
 import { apps, builds, uploadIntents } from '../db/schema'
@@ -26,7 +26,11 @@ const createAppSchema = z.object({
 
 const intentSchema = z.object({
   filename: z.string().min(1).max(240).endsWith('.apk', 'filename must end in .apk'),
-  sizeBytes: z.number().int().positive().max(5 * 1024 * 1024 * 1024),
+  sizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(5 * 1024 * 1024 * 1024),
   create: z.boolean().optional(),
   name: z.string().min(1).max(120).optional(),
   versionName: z.string().min(1).max(100).optional(),
@@ -43,7 +47,9 @@ const fileNameMetadata = (filename: string) => {
 }
 
 const nextVersionCode = async (env: Env, appId: string) => {
-  const result = await env.DB.prepare('SELECT COALESCE(MAX(version_code), 0) + 1 AS next FROM builds WHERE app_id = ?')
+  const result = await env.DB.prepare(
+    'SELECT COALESCE(MAX(version_code), 0) + 1 AS next FROM builds WHERE app_id = ?',
+  )
     .bind(appId)
     .first<{ next: number }>()
   return result?.next ?? 1
@@ -71,7 +77,9 @@ const parse = async <T>(request: Request, schema: z.ZodType<T>) => {
     return { error: { error: 'Request body must be JSON' } } as const
   }
   const result = schema.safeParse(json)
-  return result.success ? ({ data: result.data } as const) : ({ error: result.error.flatten() } as const)
+  return result.success
+    ? ({ data: result.data } as const)
+    : ({ error: result.error.flatten() } as const)
 }
 
 const cleanupExpiredUploads = async (env: Env) => {
@@ -81,7 +89,10 @@ const cleanupExpiredUploads = async (env: Env) => {
     .from(uploadIntents)
     .where(lt(uploadIntents.expiresAt, new Date().toISOString()))
   await Promise.all(expired.map((intent) => env.R2.delete(intent.r2Key)))
-  if (expired.length) await database.delete(uploadIntents).where(lt(uploadIntents.expiresAt, new Date().toISOString()))
+  if (expired.length)
+    await database
+      .delete(uploadIntents)
+      .where(lt(uploadIntents.expiresAt, new Date().toISOString()))
 }
 
 export const api = new Hono<{ Bindings: Env; Variables: Variables }>()
@@ -98,7 +109,9 @@ api.post('/apps', async (c) => {
     id: createId(),
     slug: body.data.slug,
     name: body.data.name,
-    passcodeHash: body.data.passcode ? await hashPasscode(body.data.passcode, c.env.APP_SECRET) : null,
+    passcodeHash: body.data.passcode
+      ? await hashPasscode(body.data.passcode, c.env.APP_SECRET)
+      : null,
   }
   await db(c.env).insert(apps).values(app)
   return c.json({ id: app.id, slug: app.slug, name: app.name }, 201)
@@ -118,7 +131,11 @@ api.get('/apps/:slug/builds', async (c) => {
   const app = await db(c.env).query.apps.findFirst({ where: eq(apps.slug, c.req.param('slug')) })
   if (!app) return c.json({ error: 'App not found' }, 404)
   return c.json(
-    await db(c.env).select().from(builds).where(eq(builds.appId, app.id)).orderBy(desc(builds.versionCode)),
+    await db(c.env)
+      .select()
+      .from(builds)
+      .where(eq(builds.appId, app.id))
+      .orderBy(desc(builds.versionCode)),
   )
 })
 
@@ -129,7 +146,7 @@ api.post('/apps/:slug/builds/intent', async (c) => {
   if (!slug.success) return c.json({ error: slug.error.flatten() }, 400)
   c.executionCtx.waitUntil(cleanupExpiredUploads(c.env))
 
-  let app
+  let app: { id: string; slug: string; name: string }
   try {
     app = await findOrCreateApp(c.env, body.data, slug.data)
   } catch {
@@ -139,19 +156,21 @@ api.post('/apps/:slug/builds/intent', async (c) => {
   const id = createId()
   const key = `uploads/${id}.apk`
   const expiresAt = new Date(Date.now() + uploadLifetimeMs).toISOString()
-  await db(c.env).insert(uploadIntents).values({
-    id,
-    appId: app.id,
-    r2Key: key,
-    filename: body.data.filename,
-    expectedSizeBytes: body.data.sizeBytes,
-    versionName: body.data.versionName,
-    versionCode: body.data.versionCode,
-    notes: body.data.notes,
-    commitSha: body.data.commitSha,
-    uploader: c.get('uploader'),
-    expiresAt,
-  })
+  await db(c.env)
+    .insert(uploadIntents)
+    .values({
+      id,
+      appId: app.id,
+      r2Key: key,
+      filename: body.data.filename,
+      expectedSizeBytes: body.data.sizeBytes,
+      versionName: body.data.versionName,
+      versionCode: body.data.versionCode,
+      notes: body.data.notes,
+      commitSha: body.data.commitSha,
+      uploader: c.get('uploader'),
+      expiresAt,
+    })
   const uploadUrl = await presignR2Put({
     accountId: c.env.R2_ACCOUNT_ID,
     accessKeyId: c.env.R2_S3_ACCESS_KEY_ID,
@@ -160,7 +179,10 @@ api.post('/apps/:slug/builds/intent', async (c) => {
     key,
     ifNoneMatch: '*',
   })
-  return c.json({ id, uploadUrl: uploadUrl.toString(), expiresAt, requiredHeaders: { 'If-None-Match': '*' } }, 201)
+  return c.json(
+    { id, uploadUrl: uploadUrl.toString(), expiresAt, requiredHeaders: { 'If-None-Match': '*' } },
+    201,
+  )
 })
 
 api.post('/builds/:id/complete', async (c) => {
@@ -170,22 +192,28 @@ api.post('/builds/:id/complete', async (c) => {
   if (!id) return c.json({ error: 'Build intent is invalid or expired' }, 400)
   const database = db(c.env)
   const intent = await database.query.uploadIntents.findFirst({ where: eq(uploadIntents.id, id) })
-  if (!intent || intent.expiresAt <= new Date().toISOString()) return c.json({ error: 'Build intent is invalid or expired' }, 400)
-  if (intent.uploader !== c.get('uploader')) return c.json({ error: 'Build intent belongs to another token' }, 403)
+  if (!intent || intent.expiresAt <= new Date().toISOString())
+    return c.json({ error: 'Build intent is invalid or expired' }, 400)
+  if (intent.uploader !== c.get('uploader'))
+    return c.json({ error: 'Build intent belongs to another token' }, 403)
   if (intent.state === 'published' && intent.buildId) {
     const build = await database.query.builds.findFirst({ where: eq(builds.id, intent.buildId) })
     return build ? c.json(build, 200) : c.json({ error: 'Published build disappeared' }, 409)
   }
 
-  const claim = await c.env.DB.prepare("UPDATE upload_intents SET state = 'validating' WHERE id = ? AND state = 'pending'")
+  const claim = await c.env.DB.prepare(
+    "UPDATE upload_intents SET state = 'validating' WHERE id = ? AND state = 'pending'",
+  )
     .bind(intent.id)
     .run()
-  if (claim.meta.changes !== 1) return c.json({ error: 'Build completion is already in progress' }, 409)
+  if (claim.meta.changes !== 1)
+    return c.json({ error: 'Build completion is already in progress' }, 409)
 
   try {
     const object = await c.env.R2.head(intent.r2Key)
     if (!object) return c.json({ error: 'Upload missing from R2' }, 400)
-    if (object.size !== intent.expectedSizeBytes) return c.json({ error: 'Uploaded file size does not match intent' }, 400)
+    if (object.size !== intent.expectedSizeBytes)
+      return c.json({ error: 'Uploaded file size does not match intent' }, 400)
 
     const source = await r2SourceFromGet(c.env.R2, intent.r2Key)
     if (!source) return c.json({ error: 'Upload disappeared from R2' }, 400)
@@ -199,17 +227,24 @@ api.post('/builds/:id/complete', async (c) => {
 
     const fallback = fileNameMetadata(intent.filename)
     const versionName = metadata.versionName ?? intent.versionName ?? fallback.versionName
-    const versionCode = metadata.versionCode ?? intent.versionCode ?? fallback.versionCode ?? (await nextVersionCode(c.env, app.id))
-    if (!versionName) return c.json({ error: 'APK has no versionName; include versionName in the intent' }, 400)
+    const versionCode =
+      metadata.versionCode ??
+      intent.versionCode ??
+      fallback.versionCode ??
+      (await nextVersionCode(c.env, app.id))
+    if (!versionName)
+      return c.json({ error: 'APK has no versionName; include versionName in the intent' }, 400)
 
     const duplicate = await database.query.builds.findFirst({
       where: and(eq(builds.appId, app.id), eq(builds.versionCode, versionCode)),
     })
-    if (duplicate && !body.data.force) return c.json({ error: 'versionCode already exists', buildId: duplicate.id }, 409)
+    if (duplicate && !body.data.force)
+      return c.json({ error: 'versionCode already exists', buildId: duplicate.id }, 409)
 
     const publishedKey = `builds/${intent.id}.apk`
     const validated = await getValidatedR2Object(c.env.R2, intent.r2Key, object.etag)
-    if (!validated || !('body' in validated)) return c.json({ error: 'Upload changed while being validated' }, 409)
+    if (!validated || !('body' in validated))
+      return c.json({ error: 'Upload changed while being validated' }, 409)
     await c.env.R2.put(publishedKey, validated.body)
 
     const build = {
@@ -225,25 +260,36 @@ api.post('/builds/:id/complete', async (c) => {
     const buildId = duplicate?.id ?? intent.id
     if (duplicate) await database.update(builds).set(build).where(eq(builds.id, duplicate.id))
     else await database.insert(builds).values({ id: buildId, ...build })
-    await database.update(apps).set({ packageName: metadata.packageName ?? app.packageName }).where(eq(apps.id, app.id))
+    await database
+      .update(apps)
+      .set({ packageName: metadata.packageName ?? app.packageName })
+      .where(eq(apps.id, app.id))
     await database
       .update(uploadIntents)
       .set({ state: 'published', buildId })
       .where(eq(uploadIntents.id, intent.id))
     c.executionCtx.waitUntil(c.env.R2.delete(intent.r2Key))
-    if (duplicate && duplicate.r2Key !== publishedKey) c.executionCtx.waitUntil(c.env.R2.delete(duplicate.r2Key))
+    if (duplicate && duplicate.r2Key !== publishedKey)
+      c.executionCtx.waitUntil(c.env.R2.delete(duplicate.r2Key))
     return c.json(
       {
         id: buildId,
         ...build,
         packageName: metadata.packageName,
         minSdkVersion: metadata.minSdkVersion,
-        shareUrl: new URL(`/a/${encodeURIComponent(app.slug)}/v/${versionCode}`, c.env.BASE_URL).toString(),
+        shareUrl: new URL(
+          `/a/${encodeURIComponent(app.slug)}/v/${versionCode}`,
+          c.env.BASE_URL,
+        ).toString(),
       },
       201,
     )
   } finally {
-    await c.env.DB.prepare("UPDATE upload_intents SET state = 'pending' WHERE id = ? AND state = 'validating'").bind(intent.id).run()
+    await c.env.DB.prepare(
+      "UPDATE upload_intents SET state = 'pending' WHERE id = ? AND state = 'validating'",
+    )
+      .bind(intent.id)
+      .run()
   }
 })
 

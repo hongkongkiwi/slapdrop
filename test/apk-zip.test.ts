@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { listZipEntries, readZipEntry, type ByteSource } from '../src/apk/zip'
+import { type ByteSource, listZipEntries, readZipEntry } from '../src/apk/zip'
 
 const encoder = new TextEncoder()
 
@@ -119,15 +119,22 @@ describe('APK ZIP reader', () => {
     expect(entries.map((entry) => entry.name)).toEqual(['classes.dex', 'AndroidManifest.xml'])
 
     const manifest = entries.find((entry) => entry.name === 'AndroidManifest.xml')
-    expect(manifest).toBeDefined()
-    expect(new TextDecoder().decode(await readZipEntry(source(zip), manifest!))).toBe('binary-manifest')
+    if (!manifest) throw new Error('AndroidManifest.xml entry missing from test zip')
+    expect(new TextDecoder().decode(await readZipEntry(source(zip), manifest))).toBe(
+      'binary-manifest',
+    )
   })
 
   it('inflates a DEFLATE-compressed manifest entry', async () => {
-    const zip = await testZip([{ name: 'AndroidManifest.xml', content: 'compressed manifest', compressed: true }])
+    const zip = await testZip([
+      { name: 'AndroidManifest.xml', content: 'compressed manifest', compressed: true },
+    ])
     const [manifest] = await listZipEntries(source(zip))
+    if (!manifest) throw new Error('test zip has no entries')
 
-    expect(new TextDecoder().decode(await readZipEntry(source(zip), manifest!))).toBe('compressed manifest')
+    expect(new TextDecoder().decode(await readZipEntry(source(zip), manifest))).toBe(
+      'compressed manifest',
+    )
   })
 
   it('rejects archives without an EOCD record', async () => {

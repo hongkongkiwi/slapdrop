@@ -3,18 +3,16 @@ import { describe, expect, it } from 'vitest'
 
 const auth = { authorization: 'Bearer ci-test-token-1' }
 
-const json = (body: unknown) => ({
-  ...auth,
-  'content-type': 'application/json',
-  body: JSON.stringify(body),
-})
-
 describe('upload API', () => {
   it('stores an app passcode as a hash, never the original value', async () => {
     const response = await SELF.fetch('https://example.com/api/apps', {
       method: 'POST',
       headers: { ...auth, 'content-type': 'application/json' },
-      body: JSON.stringify({ slug: 'protected-app', name: 'Protected App', passcode: 'a-long-test-passcode' }),
+      body: JSON.stringify({
+        slug: 'protected-app',
+        name: 'Protected App',
+        passcode: 'a-long-test-passcode',
+      }),
     })
 
     expect(response.status).toBe(201)
@@ -28,7 +26,7 @@ describe('upload API', () => {
   it('creates an app and a direct R2 upload intent', async () => {
     const response = await SELF.fetch('https://example.com/api/apps/fixture/builds/intent', {
       method: 'POST',
-      headers: json({}).headers,
+      headers: { ...auth, 'content-type': 'application/json' },
       body: JSON.stringify({
         filename: 'fixture-1.2.3-123.apk',
         sizeBytes: 123,
@@ -45,18 +43,21 @@ describe('upload API', () => {
   })
 
   it('rejects complete when uploaded file is not an APK', async () => {
-    const intentResponse = await SELF.fetch('https://example.com/api/apps/not-an-apk/builds/intent', {
-      method: 'POST',
-      headers: { ...auth, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        filename: 'nope.apk',
-        sizeBytes: 4,
-        create: true,
-        name: 'Not an APK',
-      }),
-    })
+    const intentResponse = await SELF.fetch(
+      'https://example.com/api/apps/not-an-apk/builds/intent',
+      {
+        method: 'POST',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          filename: 'nope.apk',
+          sizeBytes: 4,
+          create: true,
+          name: 'Not an APK',
+        }),
+      },
+    )
     const intent = (await intentResponse.json()) as { id: string }
-    await env.R2.put(`builds/${intent.id}.apk`, new Uint8Array([0, 1, 2, 3]))
+    await env.R2.put(`uploads/${intent.id}.apk`, new Uint8Array([0, 1, 2, 3]))
 
     const response = await SELF.fetch(`https://example.com/api/builds/${intent.id}/complete`, {
       method: 'POST',
