@@ -1,0 +1,5 @@
+# Copy to .dev.vars for local wrangler dev (never commit the real file)
+UPLOAD_TOKENS=ci:change-me-long-random,andy:change-me-too
+APP_SECRET=change-me-random-32-bytes
+R2_S3_ACCESS_KEY_ID=
+R2_S3_SECRET_ACCESS_KEY=

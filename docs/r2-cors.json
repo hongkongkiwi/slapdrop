@@ -1,0 +1,9 @@
+[
+  {
+    "AllowedOrigins": ["https://drop.example.com"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
