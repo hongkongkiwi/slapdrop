@@ -60,6 +60,20 @@ pnpm dev
 `R2_S3_*` values must be real only when testing direct upload. Worker/D1/R2 bindings run locally
 through Wrangler. HTTPS is needed for production passcode cookies.
 
+## Development workflow
+
+`pnpm install` installs the Lefthook Git hooks. Run checks serially before every commit:
+
+```sh
+pnpm typecheck
+pnpm lint
+pnpm test
+```
+
+Use `pnpm test:watch` while changing tests. Contributor rules live in
+[`AGENTS.md`](./AGENTS.md); report vulnerabilities privately per
+[`SECURITY.md`](./SECURITY.md). Pull requests use the repository checklist.
+
 ## Upload
 
 Browser UI: open `/upload`. It stores uploader token in browser `localStorage` on that device.
