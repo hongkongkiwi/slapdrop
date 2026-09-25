@@ -11,16 +11,23 @@ export const readApkManifest = async (source: ByteSource): Promise<ApkManifest> 
   return parseAndroidManifest(await readZipEntry(source, manifestEntry))
 }
 
-/** Adapts an R2 binding to the small ranged reads used by readApkManifest(). */
+/** Adapts a specific R2 object version to the small ranged reads used by readApkManifest(). */
 export const r2SourceFromGet = async (bucket: R2Bucket, key: string): Promise<ByteSource | undefined> => {
   const head = await bucket.head(key)
   if (!head) return undefined
   return {
     size: head.size,
     read: async (offset, length) => {
-      const object = await bucket.get(key, { range: { offset, length } })
-      if (!object) throw new Error(`APK object disappeared: ${key}`)
+      const object = await bucket.get(key, {
+        onlyIf: { etagMatches: head.etag },
+        range: { offset, length },
+      })
+      if (!object || !('body' in object)) throw new Error(`APK object changed while being validated: ${key}`)
       return new Uint8Array(await object.arrayBuffer())
     },
   }
 }
+
+/** Gets the same R2 object version after ranged validation, ready for immutable publication. */
+export const getValidatedR2Object = (bucket: R2Bucket, key: string, etag: string) =>
+  bucket.get(key, { onlyIf: { etagMatches: etag } })

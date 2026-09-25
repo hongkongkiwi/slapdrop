@@ -55,6 +55,8 @@ export const uploadIntents = sqliteTable(
     notes: text('notes'),
     commitSha: text('commit_sha'),
     uploader: text('uploader').notNull(),
+    state: text('state').notNull().default('pending'),
+    buildId: text('build_id'),
     expiresAt: text('expires_at').notNull(),
     createdAt: text('created_at').notNull().default(now),
   },

@@ -9,6 +9,7 @@ describe('R2 SigV4 presigner', () => {
       secretAccessKey: 'secret',
       bucket: 'slapdrop-apks',
       key: 'builds/build id.apk',
+      ifNoneMatch: '*',
       now: new Date('2026-09-28T12:34:56Z'),
     })
 
@@ -18,7 +19,7 @@ describe('R2 SigV4 presigner', () => {
     expect(url.searchParams.get('X-Amz-Credential')).toBe('ACCESSKEY/20260928/auto/s3/aws4_request')
     expect(url.searchParams.get('X-Amz-Date')).toBe('20260928T123456Z')
     expect(url.searchParams.get('X-Amz-Expires')).toBe('900')
-    expect(url.searchParams.get('X-Amz-SignedHeaders')).toBe('host')
+    expect(url.searchParams.get('X-Amz-SignedHeaders')).toBe('host;if-none-match')
     expect(url.searchParams.get('X-Amz-Signature')).toMatch(/^[a-f0-9]{64}$/)
   })
 })

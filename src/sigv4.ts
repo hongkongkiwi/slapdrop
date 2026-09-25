@@ -39,6 +39,8 @@ export interface PresignR2PutOptions {
   bucket: string
   key: string
   expiresInSeconds?: number
+  /** Required immutable upload guard. The caller must send this header on PUT. */
+  ifNoneMatch?: string
   now?: Date
 }
 
@@ -50,6 +52,7 @@ export const presignR2Put = async ({
   bucket,
   key,
   expiresInSeconds = 900,
+  ifNoneMatch,
   now = new Date(),
 }: PresignR2PutOptions) => {
   if (expiresInSeconds < 1 || expiresInSeconds > 604_800) throw new Error('expiresInSeconds must be 1–604800')
@@ -66,7 +69,14 @@ export const presignR2Put = async ({
     'X-Amz-SignedHeaders': 'host',
   })
   const path = `/${encodeKey(key)}`
-  const canonicalRequest = ['PUT', path, canonicalQuery(query), `host:${host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n')
+  const headers = ifNoneMatch ? { host, 'if-none-match': ifNoneMatch } : { host }
+  const signedHeaders = Object.keys(headers).sort().join(';')
+  query.set('X-Amz-SignedHeaders', signedHeaders)
+  const canonicalHeaders = Object.entries(headers)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, value]) => `${name}:${value}\n`)
+    .join('')
+  const canonicalRequest = ['PUT', path, canonicalQuery(query), canonicalHeaders, signedHeaders, 'UNSIGNED-PAYLOAD'].join('\n')
   const stringToSign = [
     'AWS4-HMAC-SHA256',
     date,

@@ -1,0 +1,74 @@
+name: Upload APK to SlapDrop
+description: Upload an Android APK directly to SlapDrop R2 and publish its share link.
+inputs:
+  api-url:
+    description: Public SlapDrop base URL, for example https://drop.example.com
+    required: true
+  token:
+    description: SlapDrop uploader token
+    required: true
+  app-slug:
+    description: Lowercase kebab-case app identifier
+    required: true
+  apk-path:
+    description: Path to APK file
+    required: true
+  app-name:
+    description: App display name; required only when creating app on first upload
+    required: false
+  notes:
+    description: Release notes
+    required: false
+  commit-sha:
+    description: Commit SHA stored with build
+    required: false
+  create:
+    description: Create app when missing
+    default: 'true'
+  force:
+    description: Replace existing versionCode
+    default: 'false'
+outputs:
+  share-url:
+    description: Published build share URL
+    value: ${{ steps.upload.outputs.share-url }}
+runs:
+  using: composite
+  steps:
+    - id: upload
+      shell: bash
+      env:
+        API_URL: ${{ inputs.api-url }}
+        TOKEN: ${{ inputs.token }}
+        APP_SLUG: ${{ inputs.app-slug }}
+        APK_PATH: ${{ inputs.apk-path }}
+        APP_NAME: ${{ inputs.app-name }}
+        NOTES: ${{ inputs.notes }}
+        COMMIT_SHA: ${{ inputs.commit-sha }}
+        CREATE: ${{ inputs.create }}
+        FORCE: ${{ inputs.force }}
+      run: |
+        set -euo pipefail
+        test -f "$APK_PATH"
+        size="$(wc -c < "$APK_PATH" | tr -d ' ')"
+        intent="$(node -e '
+          console.log(JSON.stringify({
+            filename: process.argv[1].split("/").pop(),
+            sizeBytes: Number(process.argv[2]),
+            create: process.argv[3] === "true",
+            name: process.argv[4] || undefined,
+            notes: process.argv[5] || undefined,
+            commitSha: process.argv[6] || undefined,
+          }))
+        ' "$APK_PATH" "$size" "$CREATE" "$APP_NAME" "$NOTES" "$COMMIT_SHA")"
+        response="$(curl --fail-with-body --silent --show-error \
+          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+          -d "$intent" "$API_URL/api/apps/$APP_SLUG/builds/intent")"
+        upload_url="$(node -e 'console.log(JSON.parse(process.argv[1]).uploadUrl)' "$response")"
+        curl --fail-with-body --silent --show-error -X PUT -H 'If-None-Match: *' --upload-file "$APK_PATH" "$upload_url"
+        build="$(curl --fail-with-body --silent --show-error \
+          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+          -d "{\"force\":$FORCE}" "$API_URL/api/builds/$(node -e 'console.log(JSON.parse(process.argv[1]).id)' "$response")/complete")"
+        share_url="$(node -e 'console.log(JSON.parse(process.argv[1]).shareUrl)' "$build")"
+        echo "share-url=$share_url" >> "$GITHUB_OUTPUT"
+        echo "SlapDrop: $share_url"
