@@ -4,7 +4,10 @@ const api = async (path, token, options = {}) => {
     headers: { Authorization: `Bearer ${token}`, ...(options.headers ?? {}) },
   })
   const body = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`)
+  if (!response.ok) {
+    const message = typeof body.error === 'string' ? body.error : JSON.stringify(body.error ?? body)
+    throw new Error(message || `Request failed (${response.status})`)
+  }
   return body
 }
 

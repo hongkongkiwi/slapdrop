@@ -28,7 +28,7 @@ const sign = async (value: string, secret: string) => {
   return base64url(new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(value))))
 }
 
-const equal = (left: string, right: string) => {
+export const timingSafeEqualString = (left: string, right: string) => {
   const leftBytes = encoder.encode(left)
   const rightBytes = encoder.encode(right)
   if (leftBytes.byteLength !== rightBytes.byteLength) return false
@@ -38,6 +38,8 @@ const equal = (left: string, right: string) => {
   }
   return difference === 0
 }
+
+const equal = timingSafeEqualString
 
 export const hashPasscode = (passcode: string, secret: string) => hash(`${secret}:${passcode}`)
 

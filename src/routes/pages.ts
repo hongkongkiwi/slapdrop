@@ -119,7 +119,11 @@ pages.post('/a/:slug/access', async (c) => {
   if (outcome !== 'ok') return c.redirect(`/a/${encodeURIComponent(app.slug)}?error=${outcome}`)
   await grantAppAccess(c, app.id)
   const next = c.req.query('next')
-  return c.redirect(next?.startsWith('/') ? next : `/a/${encodeURIComponent(app.slug)}`)
+  const safeNext =
+    next?.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')
+      ? next
+      : `/a/${encodeURIComponent(app.slug)}`
+  return c.redirect(safeNext)
 })
 
 export const publicBuildFor = async (env: Env, id: string) => {

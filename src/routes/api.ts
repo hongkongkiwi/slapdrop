@@ -24,8 +24,15 @@ const createAppSchema = z.object({
   passcode: z.string().min(12).max(128).optional(),
 })
 
+const MAX_VERSION_CODE = 2_147_483_647
+
 const intentSchema = z.object({
-  filename: z.string().min(1).max(240).endsWith('.apk', 'filename must end in .apk'),
+  filename: z
+    .string()
+    .min(1)
+    .max(240)
+    .transform((value) => value.toLowerCase())
+    .refine((value) => value.endsWith('.apk'), 'filename must end in .apk'),
   sizeBytes: z
     .number()
     .int()
@@ -34,7 +41,7 @@ const intentSchema = z.object({
   create: z.boolean().optional(),
   name: z.string().min(1).max(120).optional(),
   versionName: z.string().min(1).max(100).optional(),
-  versionCode: z.number().int().positive().optional(),
+  versionCode: z.number().int().positive().max(MAX_VERSION_CODE).optional(),
   notes: z.string().max(10_000).optional(),
   commitSha: z.string().max(100).optional(),
 })
@@ -43,7 +50,9 @@ const completeSchema = z.object({ force: z.boolean().optional() })
 
 const fileNameMetadata = (filename: string) => {
   const match = filename.match(/-(\d+(?:\.\d+)+)-(\d+)\.apk$/i)
-  return match ? { versionName: match[1], versionCode: Number(match[2]) } : {}
+  const versionCode = match ? Number(match[2]) : NaN
+  if (!match || !Number.isSafeInteger(versionCode) || versionCode > MAX_VERSION_CODE) return {}
+  return { versionName: match[1], versionCode }
 }
 
 const nextVersionCode = async (env: Env, appId: string) => {
@@ -65,7 +74,13 @@ const findOrCreateApp = async (
   if (found) return found
   if (!input.create || !input.name) throw new Error('App not found')
   const app = { id: createId(), slug, name: input.name }
-  await database.insert(apps).values(app)
+  try {
+    await database.insert(apps).values(app)
+  } catch {
+    const raced = await database.query.apps.findFirst({ where: eq(apps.slug, slug) })
+    if (raced) return raced
+    throw new Error('Could not create app')
+  }
   return app
 }
 
@@ -84,25 +99,26 @@ const parse = async <T>(request: Request, schema: z.ZodType<T>) => {
 
 const cleanupExpiredUploads = async (env: Env) => {
   const database = db(env)
+  const nowIso = new Date().toISOString()
+  const staleCutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString()
   const expired = await database
     .select()
     .from(uploadIntents)
-    .where(
-      and(
-        lt(uploadIntents.expiresAt, new Date().toISOString()),
-        ne(uploadIntents.state, 'validating'),
-      ),
-    )
-  await Promise.all(expired.map((intent) => env.R2.delete(intent.r2Key)))
-  if (expired.length)
+    .where(and(lt(uploadIntents.expiresAt, nowIso), ne(uploadIntents.state, 'validating')))
+  const staleClaims = await database
+    .select()
+    .from(uploadIntents)
+    .where(and(eq(uploadIntents.state, 'validating'), lt(uploadIntents.createdAt, staleCutoff)))
+  const doomed = [...expired, ...staleClaims]
+  await Promise.all(doomed.map((intent) => env.R2.delete(intent.r2Key)))
+  if (doomed.length) {
     await database
       .delete(uploadIntents)
-      .where(
-        and(
-          lt(uploadIntents.expiresAt, new Date().toISOString()),
-          ne(uploadIntents.state, 'validating'),
-        ),
-      )
+      .where(and(lt(uploadIntents.expiresAt, nowIso), ne(uploadIntents.state, 'validating')))
+    await database
+      .delete(uploadIntents)
+      .where(and(eq(uploadIntents.state, 'validating'), lt(uploadIntents.createdAt, staleCutoff)))
+  }
 }
 
 export { cleanupExpiredUploads }
@@ -284,7 +300,16 @@ api.post('/builds/:id/complete', async (c) => {
     }
     const buildId = duplicate?.id ?? intent.id
     if (duplicate) await database.update(builds).set(build).where(eq(builds.id, duplicate.id))
-    else await database.insert(builds).values({ id: buildId, ...build })
+    else {
+      try {
+        await database.insert(builds).values({ id: buildId, ...build })
+      } catch (error) {
+        if (String(error).includes('UNIQUE')) {
+          return c.json({ error: 'versionCode already exists' }, 409)
+        }
+        throw error
+      }
+    }
     await database
       .update(apps)
       .set({ packageName: metadata.packageName ?? app.packageName })
@@ -309,6 +334,8 @@ api.post('/builds/:id/complete', async (c) => {
       },
       201,
     )
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'Invalid APK' }, 400)
   } finally {
     await c.env.DB.prepare(
       "UPDATE upload_intents SET state = 'pending' WHERE id = ? AND state = 'validating'",
@@ -331,7 +358,11 @@ api.delete('/apps/:slug', async (c) => {
   const app = await db(c.env).query.apps.findFirst({ where: eq(apps.slug, c.req.param('slug')) })
   if (!app) return c.json({ error: 'App not found' }, 404)
   const appBuilds = await db(c.env).select().from(builds).where(eq(builds.appId, app.id))
-  await Promise.all(appBuilds.map((build) => c.env.R2.delete(build.r2Key)))
+  const appIntents = await db(c.env)
+    .select()
+    .from(uploadIntents)
+    .where(eq(uploadIntents.appId, app.id))
+  await Promise.all([...appBuilds, ...appIntents].map((row) => c.env.R2.delete(row.r2Key)))
   await db(c.env).delete(apps).where(eq(apps.id, app.id))
   return c.body(null, 204)
 })
