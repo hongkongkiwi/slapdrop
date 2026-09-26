@@ -19,7 +19,14 @@ body {
 .locales {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 8px;
+}
+.locales a {
+  padding: 8px 10px;
+}
+.locales a[aria-current="true"] {
+  font-weight: 700;
+  text-decoration: underline;
 }
 .release {
   display: flex;
@@ -71,8 +78,17 @@ button {
 .error {
   color: #c22;
 }
+@media (prefers-color-scheme: dark) {
+  .error {
+    color: #ff7b72;
+  }
+}
 .notes {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+body {
+  overflow-wrap: break-word;
 }
 .applist {
   display: grid;

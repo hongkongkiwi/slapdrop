@@ -100,6 +100,7 @@ describe('public installation pages', () => {
 
     const lockedPage = await SELF.fetch(base)
     expect(lockedPage.status).toBe(200)
+    expect(lockedPage.headers.get('cache-control')).toBe('private, no-store')
     expect(await lockedPage.text()).not.toContain(`/d/${buildId}.apk`)
 
     const wrong = await SELF.fetch(`${base}/access`, {
@@ -108,7 +109,7 @@ describe('public installation pages', () => {
       headers: form,
       body: new URLSearchParams({ passcode: 'wrong-long-passcode' }),
     })
-    expect(wrong.status).toBe(302)
+    expect(wrong.status).toBe(303)
     expect(wrong.headers.get('location')).toContain('error=invalid')
 
     const good = await SELF.fetch(`${base}/access`, {
@@ -117,7 +118,7 @@ describe('public installation pages', () => {
       headers: form,
       body: new URLSearchParams({ passcode: 'correct-long-passcode' }),
     })
-    expect(good.status).toBe(302)
+    expect(good.status).toBe(303)
     const setCookie = good.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain('HttpOnly')
     const cookie = setCookie.split(';')[0] ?? ''
@@ -145,8 +146,54 @@ describe('public installation pages', () => {
         body: new URLSearchParams({ passcode: 'correct-long-passcode' }),
       },
     )
-    expect(response.status).toBe(302)
+    expect(response.status).toBe(303)
     expect(response.headers.get('location')).toBe(`/a/${slug}`)
+  })
+
+  it('sends 405 with Allow for wrong methods and 404 for unknown paths', async () => {
+    const slug = `m-${crypto.randomUUID().slice(0, 8)}`
+    const seeded = await seedRelease()
+    const pagePost = await SELF.fetch(`https://example.com/a/${seeded.slug}`, { method: 'POST' })
+    expect(pagePost.status).toBe(405)
+    expect(pagePost.headers.get('allow')).toContain('GET')
+
+    const apiUnknown = await SELF.fetch('https://example.com/api/nope/nope', {
+      headers: { authorization: 'Bearer ci-test-token-1' },
+    })
+    expect(apiUnknown.status).toBe(404)
+    expect(apiUnknown.headers.get('content-type')).toContain('application/json')
+
+    const pageUnknown = await SELF.fetch(`https://example.com/a/${slug}/deep`)
+    expect(pageUnknown.status).toBe(404)
+  })
+
+  it('supports conditional downloads and skips HEAD from counters', async () => {
+    const { buildId } = await seedRelease()
+    const base = `https://example.com/d/${buildId}.apk`
+
+    const first = await SELF.fetch(base)
+    expect(first.status).toBe(200)
+    const etag = first.headers.get('etag') ?? ''
+    expect(etag).toMatch(/^"/)
+    expect(first.headers.get('cache-control')).toContain('max-age=300')
+
+    const revalidate = await SELF.fetch(base, {
+      headers: { 'if-none-match': etag },
+    })
+    expect(revalidate.status).toBe(304)
+
+    const head = await SELF.fetch(base, { method: 'HEAD' })
+    expect(head.status).toBe(200)
+    expect(Number(head.headers.get('content-length'))).toBe(4)
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const row = await env.DB.prepare('SELECT downloads FROM builds WHERE id = ?')
+        .bind(buildId)
+        .first<{ downloads: number }>()
+      if (row?.downloads === 1) return
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    throw new Error('download counter never reached 1')
   })
 
   it('escapes app names on the landing page', async () => {

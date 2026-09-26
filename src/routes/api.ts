@@ -76,10 +76,12 @@ const findOrCreateApp = async (
   const app = { id: createId(), slug, name: input.name }
   try {
     await database.insert(apps).values(app)
-  } catch {
-    const raced = await database.query.apps.findFirst({ where: eq(apps.slug, slug) })
-    if (raced) return raced
-    throw new Error('Could not create app')
+  } catch (error) {
+    if (String(error).includes('UNIQUE')) {
+      const raced = await database.query.apps.findFirst({ where: eq(apps.slug, slug) })
+      if (raced) return raced
+    }
+    throw error instanceof Error ? error : new Error('Could not create app')
   }
   return app
 }
@@ -101,10 +103,13 @@ const cleanupExpiredUploads = async (env: Env) => {
   const database = db(env)
   const nowIso = new Date().toISOString()
   const staleCutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  // Batched: a >1000-row backlog must drain over several hourly runs instead of
+  // blowing the ~1000-subrequest cap and wedging cleanup forever.
   const expired = await database
     .select()
     .from(uploadIntents)
     .where(and(lt(uploadIntents.expiresAt, nowIso), ne(uploadIntents.state, 'validating')))
+    .limit(100)
   const staleClaims = await database
     .select()
     .from(uploadIntents)
@@ -114,6 +119,7 @@ const cleanupExpiredUploads = async (env: Env) => {
         or(isNull(uploadIntents.claimedAt), lt(uploadIntents.claimedAt, staleCutoff)),
       ),
     )
+    .limit(100)
   const doomed = [...expired, ...staleClaims]
   await Promise.all(doomed.map((intent) => env.R2.delete(intent.r2Key)))
   if (doomed.length) {
@@ -135,6 +141,10 @@ export { cleanupExpiredUploads }
 
 export const api = new Hono<{ Bindings: Env; Variables: Variables }>()
 api.use('*', uploaderAuth)
+api.use('*', async (c, next) => {
+  await next()
+  if (c.req.method === 'GET') c.header('Cache-Control', 'private, no-store')
+})
 
 api.get('/apps', async (c) =>
   c.json(
@@ -200,13 +210,23 @@ api.post('/apps/:slug/builds/intent', async (c) => {
   if ('error' in body) return c.json(body.error, 400)
   const slug = slugSchema.safeParse(c.req.param('slug'))
   if (!slug.success) return c.json({ error: slug.error.flatten() }, 400)
-  c.executionCtx.waitUntil(cleanupExpiredUploads(c.env))
+  c.executionCtx.waitUntil(
+    cleanupExpiredUploads(c.env).catch((error) => {
+      console.error('expired-upload cleanup failed', error)
+    }),
+  )
 
   let app: { id: string; slug: string; name: string }
   try {
     app = await findOrCreateApp(c.env, body.data, slug.data)
-  } catch {
-    return c.json({ error: 'App not found; use create and name to create it' }, 404)
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message === 'App not found' || error.message === 'Could not create app')
+    ) {
+      return c.json({ error: 'App not found; use create and name to create it' }, 404)
+    }
+    throw error
   }
 
   const id = createId()
@@ -296,8 +316,10 @@ api.post('/builds/:id/complete', async (c) => {
     })
     let versionCode =
       bounded(metadata.versionCode) ?? bounded(intent.versionCode) ?? bounded(fallback.versionCode)
-    if (versionCode === undefined)
-      versionCode = duplicate?.versionCode ?? (await nextVersionCode(c.env, app.id))
+    if (versionCode === undefined) {
+      const computed = bounded(await nextVersionCode(c.env, app.id))
+      versionCode = duplicate?.versionCode ?? computed ?? MAX_VERSION_CODE
+    }
     if (!duplicate) {
       duplicate = await database.query.builds.findFirst({
         where: and(eq(builds.appId, app.id), eq(builds.versionCode, versionCode)),
@@ -385,20 +407,33 @@ api.post('/builds/:id/complete', async (c) => {
         minSdkVersion: metadata.minSdkVersion,
         shareUrl: shareUrlFor(app.slug, versionCode),
       },
-      201,
+      // An in-place force-replace updated an existing resource, not a new one.
+      duplicate ? 200 : 201,
     )
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Invalid APK'
-    return c.json(
-      { error: message.includes('FOREIGN KEY') ? 'App was deleted while uploading' : message },
-      400,
-    )
+    // Parse failures are client errors; everything else is transient infra and
+    // must not leak internals or masquerade as a bad request.
+    const parseFailure = /^(Invalid APK|Invalid ZIP|Invalid AndroidManifest\.xml)/.test(message)
+    const replaced = message.includes('APK object changed while being validated')
+    const appDeleted = message.includes('FOREIGN KEY')
+    if (!parseFailure && !replaced && !appDeleted) {
+      console.error('complete failed for intent', intent.id, error)
+      return c.json({ error: 'Internal error; retry the publish' }, 500)
+    }
+    if (replaced) return c.json({ error: 'Upload changed while being validated' }, 409)
+    if (appDeleted) return c.json({ error: 'App was deleted while uploading' }, 409)
+    return c.json({ error: message }, 400)
   } finally {
-    await c.env.DB.prepare(
-      "UPDATE upload_intents SET state = 'pending' WHERE id = ? AND state = 'validating'",
-    )
-      .bind(intent.id)
-      .run()
+    try {
+      await c.env.DB.prepare(
+        "UPDATE upload_intents SET state = 'pending' WHERE id = ? AND state = 'validating'",
+      )
+        .bind(intent.id)
+        .run()
+    } catch (error) {
+      console.error('claim reset failed for intent', intent.id, error)
+    }
   }
 })
 
