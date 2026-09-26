@@ -36,8 +36,35 @@ app.route('/api', api)
 app.route('/', downloads)
 app.route('/', pages)
 
-app.get('/upload', (c) =>
-  c.html(`<!doctype html>
+// 405 with Allow when the path exists under another method; 404 otherwise
+// (JSON on /api/*, localized HTML elsewhere). Middleware-only matches
+// (app.use('*')) are skipped so /api/* cannot 405 on everything.
+const METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'] as const
+app.notFound((c) => {
+  const path = new URL(c.req.url).pathname
+  const method = c.req.method
+  const allowed = new Set<string>()
+  let pathExists = false
+  for (const route of app.routes) {
+    if (route.method === 'ALL' || route.path === '*') continue
+    if (!new RegExp(`^${route.path.replace(/:[^/]+/g, '[^/]+')}$`).test(path)) continue
+    pathExists = true
+    if (route.method !== method) allowed.add(route.method)
+  }
+  if (pathExists) {
+    c.header('Allow', [...allowed].sort().join(', '))
+    if (path.startsWith('/api/')) return c.json({ error: 'Method not allowed' }, 405)
+    return c.text('Method not allowed', 405)
+  }
+  if (path.startsWith('/api/')) return c.json({ error: 'Not found' }, 404)
+  const locale = localeFrom(c.req.header('accept-language'), c.req.query('lang'))
+  return c.html(page('', locale, `<h1>${t(locale).unavailable}</h1>`, new URL(c.req.url)), 404)
+})
+
+app.get('/upload', (c) => {
+  c.header('Cache-Control', 'no-cache')
+  c.header('Vary', 'Accept-Language')
+  return c.html(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -55,19 +82,28 @@ app.get('/upload', (c) =>
 <label>Commit SHA<input name="commit" maxlength="100"></label>
 <label class="check"><input name="create" type="checkbox" checked> Create app if it does not exist</label>
 <button>Upload and publish</button></form>
-<p id="status" aria-live="polite"></p><a id="result" hidden></a></main><script src="/app.js"></script></body></html>`),
-)
+<p id="status" aria-live="polite"></p><a id="result" hidden></a></main><script src="/app.js"></script></body></html>`)
+})
 
 app.get('/', async (c) => {
+  c.header('Cache-Control', 'no-cache')
+  c.header('Vary', 'Accept-Language')
   const locale = localeFrom(c.req.header('accept-language'), c.req.query('lang'))
   const strings = t(locale)
   const database = db(c.env)
-  const allApps = await database.select().from(apps).orderBy(apps.name)
-  const allBuilds = await database
-    .select()
-    .from(builds)
-    .orderBy(desc(builds.versionCode), desc(builds.uploadedAt))
-  const latestByApp = new Map<string, typeof builds.$inferSelect>()
+  // Only the columns the landing renders — avoids pulling 10KB notes blobs.
+  const [allApps, allBuilds] = await Promise.all([
+    database.select().from(apps).orderBy(apps.name),
+    database
+      .select({
+        appId: builds.appId,
+        versionName: builds.versionName,
+        versionCode: builds.versionCode,
+      })
+      .from(builds)
+      .orderBy(desc(builds.versionCode), desc(builds.uploadedAt)),
+  ])
+  const latestByApp = new Map<string, { versionName: string; versionCode: number }>()
   for (const build of allBuilds) {
     if (!latestByApp.has(build.appId)) latestByApp.set(build.appId, build)
   }
@@ -83,7 +119,7 @@ app.get('/', async (c) => {
     page(
       '',
       locale,
-      `<h1>🐝 SlapDrop</h1><p>${strings.appsList}</p><ul class="applist">${list}</ul><p><a class="button" href="/upload">${strings.upload}</a></p>`,
+      `<h1><span aria-hidden="true">🐝</span> SlapDrop</h1><p>${strings.appsList}</p><ul class="applist">${list}</ul><p><a class="button" href="/upload">${strings.upload}</a></p>`,
       new URL(c.req.url),
     ),
   )

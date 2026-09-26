@@ -18,7 +18,10 @@ export const uploaderAuth: MiddlewareHandler<{ Bindings: Env; Variables: Variabl
   const uploader =
     token &&
     tokens(c.env.UPLOAD_TOKENS).find((candidate) => timingSafeEqualString(candidate.token, token))
-  if (!uploader) return c.json({ error: 'Unauthorized' }, 401)
+  if (!uploader) {
+    c.header('WWW-Authenticate', 'Bearer realm="slapdrop-upload"')
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
   c.set('uploader', uploader.label)
   await next()
 }

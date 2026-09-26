@@ -51,7 +51,15 @@ if (form) {
         headers: intent.requiredHeaders,
         body: file,
       })
-      if (!upload.ok) throw new Error(`R2 upload failed (${upload.status})`)
+      if (!upload.ok) {
+        const detail = (await upload.text().catch(() => '')).slice(0, 300)
+        if (upload.status === 412) {
+          throw new Error(
+            'R2 rejected the upload (If-None-Match guard): an object already exists for this intent. Create a new upload and retry.',
+          )
+        }
+        throw new Error(`R2 upload failed (${upload.status}) ${detail}`.trim())
+      }
       status.textContent = 'Validating APK…'
       const build = await api(`/builds/${intent.id}/complete`, token, {
         method: 'POST',

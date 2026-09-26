@@ -24,7 +24,12 @@ Cloudflare Worker (Hono + R2 + D1). Audience: testers without Play Store access
   links (per-request, not persisted)
 - **F24** HTTP Range downloads on `/d/` (single `bytes=` range; suffix ranges;
   416 with `Content-Range: bytes */size` when unsatisfiable; only full
-  downloads increment the counter)
+  downloads increment the counter; ETag + `If-None-Match` revalidation;
+  short-lived cacheability since force-republish swaps bytes under the URL)
+- **F25** HTTP hardening: `303` on POST→GET redirects, `405` + `Allow` for
+  wrong methods, `WWW-Authenticate: Bearer` on 401s, `Cache-Control`/`Vary`
+  per response class, JSON errors on `/api/*`, plain-text R2 failure details
+  in the upload UI
 
 ## Upload & management (Bearer token auth)
 

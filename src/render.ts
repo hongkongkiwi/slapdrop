@@ -40,7 +40,7 @@ export const qrSvg = (url: string) => {
 }
 
 /** Locale toggle links that preserve the current path and params (minus error state). */
-const localeNav = (currentUrl?: URL) => {
+const localeNav = (locale: Locale, currentUrl?: URL) => {
   const href = (target: Locale) => {
     if (!currentUrl) return `?lang=${target}`
     const link = new URL(currentUrl)
@@ -48,7 +48,11 @@ const localeNav = (currentUrl?: URL) => {
     link.searchParams.set('lang', target)
     return `${link.pathname}${link.search}${link.hash}`
   }
-  return `<nav class="locales"><a href="${href('en')}">EN</a><a href="${href('zh-Hant')}">繁</a><a href="${href('zh-Hans')}">简</a></nav>`
+  const link = (target: Locale, label: string, text: string) =>
+    `<a href="${href(target)}" hreflang="${target}" aria-label="${label}"${
+      locale === target ? ' aria-current="true"' : ''
+    }>${text}</a>`
+  return `<nav class="locales" aria-label="Language">${link('en', 'English', 'EN')}${link('zh-Hant', '繁體中文', '繁')}${link('zh-Hans', '简体中文', '简')}</nav>`
 }
 
 export const page = (title: string, locale: Locale, content: string, currentUrl?: URL) =>
@@ -63,7 +67,7 @@ export const page = (title: string, locale: Locale, content: string, currentUrl?
 </head>
 <body>
 <main class="wrap">
-${localeNav(currentUrl)}
+${localeNav(locale, currentUrl)}
 ${content}
 </main>
 </body>

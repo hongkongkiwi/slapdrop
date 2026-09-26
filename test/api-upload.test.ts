@@ -101,6 +101,7 @@ describe('upload API', () => {
   it('rejects requests without an upload token', async () => {
     const response = await SELF.fetch('https://example.com/api/apps')
     expect(response.status).toBe(401)
+    expect(response.headers.get('www-authenticate')).toContain('Bearer')
   })
 
   it("rejects completion of another token's intent", async () => {
@@ -310,7 +311,7 @@ describe('upload API', () => {
     })
     const thirdId = await stageUpload(slug, third, 9)
     const forced = await postJson(`/api/builds/${thirdId}/complete`, { force: true })
-    expect(forced.status).toBe(201)
+    expect(forced.status).toBe(200)
     const replaced = (await forced.json()) as { id: string; r2Key: string }
     expect(replaced.id).toBe(build.id)
     expect(replaced.r2Key).not.toBe(build.r2Key)
