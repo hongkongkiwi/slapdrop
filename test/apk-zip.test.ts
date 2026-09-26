@@ -147,4 +147,34 @@ describe('APK ZIP reader', () => {
     })
     await expect(listZipEntries(source(zip))).rejects.toThrow('central directory too large')
   })
+
+  it('rejects corrupt deflate payloads', async () => {
+    const zip = await testZip([
+      { name: 'AndroidManifest.xml', content: 'compressed', compressed: true },
+    ])
+    const entries = await listZipEntries(source(zip))
+    const entry = entries[0]
+    if (!entry) throw new Error('test zip has no entries')
+    // Corrupt the raw deflate bytes inside the local entry payload.
+    const dataStart = entry.localHeaderOffset + 30 + entry.name.length
+    zip[dataStart] = (zip[dataStart] ?? 0) ^ 0xff
+    zip[dataStart + 1] = (zip[dataStart + 1] ?? 0) ^ 0xff
+    await expect(readZipEntry(source(zip), entry)).rejects.toThrow()
+  })
+
+  it('finds the real EOCD when the comment contains EOCD bytes', async () => {
+    let zip = await testZip([{ name: 'a.txt', content: 'a' }])
+    // Turn the real EOCD's zero-length comment into 4 bytes that contain the
+    // EOCD signature; the scan must skip that candidate and keep the real one.
+    const commentLength = new DataView(zip.buffer).getUint16(zip.byteLength - 2, true)
+    expect(commentLength).toBe(0)
+    const bytes = new Uint8Array(zip.byteLength + 4)
+    bytes.set(zip)
+    new DataView(bytes.buffer).setUint16(zip.byteLength - 2, 4, true)
+    bytes.set(u32(0x06054b50), zip.byteLength)
+    zip = bytes
+
+    const entries = await listZipEntries(source(zip))
+    expect(entries.map((entry) => entry.name)).toEqual(['a.txt'])
+  })
 })

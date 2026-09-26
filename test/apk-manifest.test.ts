@@ -141,4 +141,40 @@ describe('Android binary XML manifest parser', () => {
       'not binary Android XML',
     )
   })
+
+  it('rejects truncated start elements', () => {
+    const content = concat(
+      stringPool(['manifest', 'package', 'x']),
+      concat(u16(0x0102), u16(16), u32(20), u32(1), u32(0xffffffff), new Uint8Array(12)),
+    )
+    const bytes = concat(u16(3), u16(8), u32(8 + content.byteLength), content)
+    expect(() => parseAndroidManifest(bytes)).toThrow('truncated start element')
+  })
+
+  it('rejects attribute tables extending past the chunk', () => {
+    const strings = ['manifest', 'package', 'x']
+    const extension = concat(
+      u32(0xffffffff),
+      u32(0),
+      u16(20),
+      u16(20),
+      u16(9),
+      u16(0),
+      u16(0),
+      u16(0),
+    )
+    const content = concat(
+      stringPool(strings),
+      concat(
+        u16(0x0102),
+        u16(16),
+        u32(16 + extension.byteLength),
+        u32(1),
+        u32(0xffffffff),
+        extension,
+      ),
+    )
+    const bytes = concat(u16(3), u16(8), u32(8 + content.byteLength), content)
+    expect(() => parseAndroidManifest(bytes)).toThrow('invalid start element')
+  })
 })
