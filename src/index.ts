@@ -78,11 +78,13 @@ app.get('/', async (c) => {
       return `<li><a href="/a/${encodeURIComponent(entry.slug)}">${escapeHtml(entry.name)}</a>${version}</li>`
     })
     .join('')
+  const list = items || `<li class="empty">${strings.noApps}</li>`
   return c.html(
     page(
-      'SlapDrop',
+      '',
       locale,
-      `<h1>🐝 SlapDrop</h1><p>${strings.appsList}</p><ul class="applist">${items}</ul><p><a class="button" href="/upload">Upload</a></p>`,
+      `<h1>🐝 SlapDrop</h1><p>${strings.appsList}</p><ul class="applist">${list}</ul><p><a class="button" href="/upload">${strings.upload}</a></p>`,
+      new URL(c.req.url),
     ),
   )
 })

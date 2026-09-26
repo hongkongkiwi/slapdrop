@@ -16,17 +16,19 @@ if (form) {
   const tokenInput = form.querySelector('[name=token]')
   const appInput = form.querySelector('[name=app]')
   const fileInput = form.querySelector('[name=apk]')
+  const submitButton = form.querySelector('button')
   const status = document.querySelector('#status')
   const result = document.querySelector('#result')
   tokenInput.value = localStorage.getItem('slapdrop-token') ?? ''
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
+    if (submitButton.disabled) return
     const token = tokenInput.value.trim()
     const slug = appInput.value.trim()
     const file = fileInput.files?.[0]
     if (!token || !slug || !file) return
-    localStorage.setItem('slapdrop-token', token)
+    submitButton.disabled = true
     status.textContent = 'Creating upload…'
     result.hidden = true
     try {
@@ -42,6 +44,7 @@ if (form) {
           commitSha: form.querySelector('[name=commit]').value.trim() || undefined,
         }),
       })
+      localStorage.setItem('slapdrop-token', token)
       status.textContent = `Uploading ${file.name}…`
       const upload = await fetch(intent.uploadUrl, {
         method: 'PUT',
@@ -61,6 +64,8 @@ if (form) {
       result.hidden = false
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : 'Upload failed'
+    } finally {
+      submitButton.disabled = false
     }
   })
 }

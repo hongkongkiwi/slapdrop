@@ -3,6 +3,8 @@ export type Locale = 'en' | 'zh-Hant' | 'zh-Hans'
 const copy = {
   en: {
     appsList: 'App releases',
+    noApps: 'No apps published yet.',
+    upload: 'Upload',
     notes: 'Release notes',
     install: 'Install APK',
     download: 'Download APK',
@@ -23,6 +25,8 @@ const copy = {
   },
   'zh-Hant': {
     appsList: '應用發布',
+    noApps: '尚未發布任何應用程式。',
+    upload: '上傳',
     notes: '版本說明',
     install: '安裝 APK',
     download: '下載 APK',
@@ -42,6 +46,8 @@ const copy = {
   },
   'zh-Hans': {
     appsList: '应用发布',
+    noApps: '还没有已发布的应用。',
+    upload: '上传',
     notes: '版本说明',
     install: '安装 APK',
     download: '下载 APK',
@@ -61,13 +67,28 @@ const copy = {
   },
 } as const
 
+const quality = (part: string) => {
+  const match = part.match(/;q=([\d.]+)$/)
+  return match ? Number(match[1]) : 1
+}
+
+/** Ranked Accept-Language parsing: first matching family by declared preference wins. */
 export const localeFrom = (acceptLanguage: string | undefined, selected?: string): Locale => {
   if (selected === 'zh-Hant' || selected === 'zh-Hans' || selected === 'en') return selected
-  const language = acceptLanguage?.toLowerCase() ?? ''
-  if (language.includes('zh-tw') || language.includes('zh-hk') || language.includes('zh-hant')) {
-    return 'zh-Hant'
+  const ranked = (acceptLanguage ?? '')
+    .split(',')
+    .map((part) => ({ tag: (part.split(';')[0] ?? '').trim().toLowerCase(), q: quality(part) }))
+    .filter((entry) => entry.tag)
+    .sort((left, right) => right.q - left.q)
+  for (const { tag } of ranked) {
+    if (tag.startsWith('zh')) {
+      if (/(hant|tw|hk|mo)/.test(tag)) return 'zh-Hant'
+      if (/(hans|cn|sg)/.test(tag)) return 'zh-Hans'
+      return 'zh-Hant'
+    }
+    if (tag.startsWith('en')) return 'en'
   }
-  return language.includes('zh') ? 'zh-Hans' : 'en'
+  return 'en'
 }
 
 export const t = (locale: Locale) => copy[locale]

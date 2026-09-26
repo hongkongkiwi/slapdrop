@@ -5,7 +5,7 @@ import { db } from '../db/client'
 import { apps, builds } from '../db/schema'
 import type { Env } from '../env'
 import { localeFrom, t } from '../i18n'
-import { escapeHtml, formatBytes, page, qrSvg } from '../render'
+import { escapeHtml, formatBytes, formatDate, page, qrSvg } from '../render'
 
 const appBySlug = (env: Env, slug: string) =>
   db(env).query.apps.findFirst({ where: eq(apps.slug, slug) })
@@ -26,6 +26,7 @@ const renderBuild = (
   history: (typeof builds.$inferSelect)[],
   baseUrl: string,
   locale: ReturnType<typeof localeFrom>,
+  currentUrl: URL,
   hasAccess: boolean,
   error?: string,
 ) => {
@@ -34,10 +35,10 @@ const renderBuild = (
   const action = `/a/${encodeURIComponent(app.slug)}/access?next=${encodeURIComponent(`/d/${build.id}.apk`)}`
   const errorMessage =
     error === 'locked' ? strings.lockedPasscode : error ? strings.invalidPasscode : ''
-  const install =
-    app.passcodeHash && !hasAccess
-      ? `<form class="passcode" action="${action}" method="post"><label>${strings.passcode}<input name="passcode" type="password" required autocomplete="one-time-code"></label><button>${strings.unlock}</button>${errorMessage ? `<p class="error">${errorMessage}</p>` : ''}</form>`
-      : `<a class="button" href="/d/${build.id}.apk">${strings.install}</a>`
+  const locked = Boolean(app.passcodeHash) && !hasAccess
+  const install = locked
+    ? `<form class="passcode" action="${action}" method="post"><label>${strings.passcode}<input name="passcode" type="password" required autocomplete="current-password"></label><button>${strings.unlock}</button>${errorMessage ? `<p class="error">${errorMessage}</p>` : ''}</form>`
+    : `<a class="button" href="/d/${build.id}.apk">${strings.install}</a>`
   const historyRows = history
     .filter((release) => release.id !== build.id)
     .map(
@@ -50,23 +51,25 @@ const renderBuild = (
     app.name,
     locale,
     `<header><p class="eyebrow">${strings.latest}</p><h1>${escapeHtml(app.name)}</h1><p>${strings.version} ${escapeHtml(build.versionName)} (${build.versionCode})</p></header>
-<section class="release"><div class="qr">${qrSvg(shareUrl)}</div><div><p>${strings.size}: ${formatBytes(build.sizeBytes)}</p><p>${strings.uploaded}: ${escapeHtml(build.uploadedAt)}</p><p>${strings.downloads}: ${build.downloads}</p>${install}</div></section>
-<details><summary>${strings.guide}</summary><p>${strings.guideText}</p></details>${build.notes ? `<section><h2>${strings.notes}</h2><p class="notes">${escapeHtml(build.notes)}</p></section>` : ''}${historyRows ? `<section><h2>${strings.history}</h2><ul>${historyRows}</ul></section>` : ''}`,
+<section class="release"><div class="qr">${qrSvg(shareUrl)}</div><div><p>${strings.size}: ${formatBytes(build.sizeBytes)}</p><p>${strings.uploaded}: ${formatDate(build.uploadedAt, locale)}</p><p>${strings.downloads}: ${build.downloads}</p>${install}</div></section>
+<details><summary>${strings.guide}</summary><p>${strings.guideText}</p></details>${!locked && build.notes ? `<section><h2>${strings.notes}</h2><p class="notes">${escapeHtml(build.notes)}</p></section>` : ''}${!locked && historyRows ? `<section><h2>${strings.history}</h2><ul>${historyRows}</ul></section>` : ''}`,
+    currentUrl,
   )
 }
 
-const unavailable = (locale: ReturnType<typeof localeFrom>, title = 'SlapDrop') =>
-  page(title, locale, `<h1>${t(locale).unavailable}</h1>`)
+const unavailable = (locale: ReturnType<typeof localeFrom>, currentUrl: URL, title = '') =>
+  page(title, locale, `<h1>${t(locale).unavailable}</h1>`, currentUrl)
 
 export const pages = new Hono<{ Bindings: Env }>()
 
 pages.get('/a/:slug', async (c) => {
   const app = await appBySlug(c.env, c.req.param('slug'))
   const locale = localeFrom(c.req.header('accept-language'), c.req.query('lang'))
-  if (!app) return c.html(unavailable(locale), 404)
+  const currentUrl = new URL(c.req.url)
+  if (!app) return c.html(unavailable(locale, currentUrl), 404)
   const history = await historyFor(c.env, app.id)
   const build = history[0]
-  if (!build) return c.html(unavailable(locale, app.name), 404)
+  if (!build) return c.html(unavailable(locale, currentUrl, app.name), 404)
   return c.html(
     renderBuild(
       app,
@@ -74,6 +77,7 @@ pages.get('/a/:slug', async (c) => {
       history,
       c.env.BASE_URL,
       locale,
+      currentUrl,
       await hasAppAccess(c.req.raw, app.id, c.env),
       c.req.query('error'),
     ),
@@ -83,11 +87,13 @@ pages.get('/a/:slug', async (c) => {
 pages.get('/a/:slug/v/:versionCode', async (c) => {
   const app = await appBySlug(c.env, c.req.param('slug'))
   const locale = localeFrom(c.req.header('accept-language'), c.req.query('lang'))
+  const currentUrl = new URL(c.req.url)
   const versionCode = Number(c.req.param('versionCode'))
-  if (!app || !Number.isSafeInteger(versionCode)) return c.html(unavailable(locale), 404)
+  if (!app || !Number.isSafeInteger(versionCode))
+    return c.html(unavailable(locale, currentUrl), 404)
   const history = await historyFor(c.env, app.id)
   const build = history.find((release) => release.versionCode === versionCode)
-  if (!build) return c.html(unavailable(locale, app.name), 404)
+  if (!build) return c.html(unavailable(locale, currentUrl, app.name), 404)
   return c.html(
     renderBuild(
       app,
@@ -95,6 +101,7 @@ pages.get('/a/:slug/v/:versionCode', async (c) => {
       history,
       c.env.BASE_URL,
       locale,
+      currentUrl,
       await hasAppAccess(c.req.raw, app.id, c.env),
       c.req.query('error'),
     ),
@@ -104,8 +111,19 @@ pages.get('/a/:slug/v/:versionCode', async (c) => {
 pages.post('/a/:slug/access', async (c) => {
   const app = await appBySlug(c.env, c.req.param('slug'))
   if (!app?.passcodeHash) return c.redirect(`/a/${encodeURIComponent(c.req.param('slug'))}`)
-  const form = await c.req.formData()
-  const passcode = form.get('passcode')
+  const locale = localeFrom(c.req.header('accept-language'), c.req.query('lang'))
+  const back = (error?: string) => {
+    const target = new URL(`/a/${encodeURIComponent(app.slug)}`, c.req.url)
+    if (locale !== 'en' || c.req.query('lang')) target.searchParams.set('lang', locale)
+    if (error) target.searchParams.set('error', error)
+    return c.redirect(`${target.pathname}${target.search}`)
+  }
+  let passcode: unknown = null
+  try {
+    passcode = (await c.req.formData()).get('passcode')
+  } catch {
+    return back('invalid')
+  }
   const outcome =
     typeof passcode === 'string'
       ? await verifyPasscodeAttempt(
@@ -116,7 +134,7 @@ pages.post('/a/:slug/access', async (c) => {
           passcodeClientKey(c.req.raw),
         )
       : 'invalid'
-  if (outcome !== 'ok') return c.redirect(`/a/${encodeURIComponent(app.slug)}?error=${outcome}`)
+  if (outcome !== 'ok') return back(outcome)
   await grantAppAccess(c, app.id)
   const next = c.req.query('next')
   const safeNext =
