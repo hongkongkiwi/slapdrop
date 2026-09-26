@@ -10,8 +10,15 @@ apk="$EAS_BUILD_ARTIFACT_PATH"
 slug="my-android-app"
 size="$(wc -c < "$apk" | tr -d ' ')"
 intent="$(node -e 'console.log(JSON.stringify({ filename: process.argv[1].split("/").pop(), sizeBytes: Number(process.argv[2]), create: true, name: "My Android App" }))' "$apk" "$size")"
-response="$(curl --fail-with-body -sS -H "Authorization: Bearer $SLAPDROP_TOKEN" -H 'Content-Type: application/json' -d "$intent" "$SLAPDROP_URL/api/apps/$slug/builds/intent")"
+response="$(curl --fail-with-body -sS -H "Authorization: Bearer $SLAPDROP_TOKEN" -H 'Content-Type: application/json' -d "$intent" "$SLAPDROP_URL/api/apps/$slug/builds/intent")" || {
+  printf 'SlapDrop intent failed:\n%s\n' "$response" >&2
+  exit 1
+}
 id="$(node -e 'console.log(JSON.parse(process.argv[1]).id)' "$response")"
 url="$(node -e 'console.log(JSON.parse(process.argv[1]).uploadUrl)' "$response")"
 curl --fail-with-body -sS -X PUT -H 'If-None-Match: *' --upload-file "$apk" "$url"
-curl --fail-with-body -sS -H "Authorization: Bearer $SLAPDROP_TOKEN" -H 'Content-Type: application/json' -d '{}' "$SLAPDROP_URL/api/builds/$id/complete"
+build="$(curl --fail-with-body -sS -H "Authorization: Bearer $SLAPDROP_TOKEN" -H 'Content-Type: application/json' -d '{}' "$SLAPDROP_URL/api/builds/$id/complete")" || {
+  printf 'SlapDrop publish failed:\n%s\n' "$build" >&2
+  exit 1
+}
+echo "Published: $build"

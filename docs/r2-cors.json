@@ -1,9 +1,13 @@
-[
-  {
-    "AllowedOrigins": ["https://drop.example.com"],
-    "AllowedMethods": ["PUT"],
-    "AllowedHeaders": ["If-None-Match", "Content-Type"],
-    "ExposeHeaders": ["ETag"],
-    "MaxAgeSeconds": 3600
-  }
-]
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": ["https://drop.example.com"],
+        "methods": ["PUT"],
+        "headers": ["If-None-Match", "Content-Type"]
+      },
+      "exposeHeaders": ["ETag"],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}

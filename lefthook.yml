@@ -6,11 +6,14 @@ pre-commit:
     typecheck:
       run: pnpm typecheck
       skip:
-        - run: test "$(git diff --cached --name-only | grep -E '\.(ts|mts|cts)$|(^|/)(vitest|drizzle)\.config\.ts$' | wc -l | tr -d ' ')" = "0"
+        - run: test "$(git diff --cached --name-only | grep -E '\.(ts|mts|cts)$|(^|/)(vitest|drizzle)\.config\.ts$|(^|/)tsconfig.*\.json$' | wc -l | tr -d ' ')" = "0"
 
 pre-push:
   commands:
     test:
       run: pnpm test
+      # Skip only when the commits being pushed touch no TS/SQL/config files.
+      # Without an @{push} ref the git call fails, the check exits 1, and the
+      # tests run (safe default).
       skip:
-        - run: test "$(git diff --name-only HEAD | grep -E '\.(ts|mts|cts|sql)$|(^|/)(vitest|drizzle)\.config\.ts$' | wc -l | tr -d ' ')" = "0"
+        - run: files="$(git diff --name-only '@{push}'..HEAD 2>/dev/null)" || exit 1; test "$(printf '%s' "$files" | grep -E '\.(ts|mts|cts|sql)$|(^|/)(vitest|drizzle)\.config\.ts$|(^|/)tsconfig.*\.json$' | wc -l | tr -d ' ')" = "0"
