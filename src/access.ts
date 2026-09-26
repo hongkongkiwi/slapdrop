@@ -76,7 +76,17 @@ export const passcodeMatches = async (passcode: string, expectedHash: string, se
 export const passcodeClientKey = (request: Request) =>
   request.headers.get('cf-connecting-ip') ?? 'unknown'
 
-/** Permits five failed guesses per IP/app per 15 minutes, then locks that pair for one hour. */
+const bumpSql = `UPDATE passcode_attempts
+SET failures = CASE WHEN window_started_at > ? THEN failures + 1 ELSE 1 END,
+    window_started_at = CASE WHEN window_started_at > ? THEN window_started_at ELSE ? END,
+    locked_until = CASE
+      WHEN (CASE WHEN window_started_at > ? THEN failures + 1 ELSE 1 END) >= ? THEN ?
+      ELSE NULL
+    END
+WHERE app_id = ? AND client_key = ?`
+
+/** Permits five failed guesses per IP/app per 15 minutes, then locks that pair for one hour.
+ * Counting happens inside D1 so concurrent guesses cannot under-count. */
 export const verifyPasscodeAttempt = async (
   env: Env,
   appId: string,
@@ -86,41 +96,50 @@ export const verifyPasscodeAttempt = async (
 ): Promise<'ok' | 'invalid' | 'locked'> => {
   const now = Date.now()
   const attempt = await env.DB.prepare(
-    'SELECT id, failures, window_started_at, locked_until FROM passcode_attempts WHERE app_id = ? AND client_key = ?',
+    'SELECT failures, locked_until FROM passcode_attempts WHERE app_id = ? AND client_key = ?',
   )
     .bind(appId, clientKey)
-    .first<{
-      id: string
-      failures: number
-      window_started_at: string
-      locked_until: string | null
-    }>()
+    .first<{ failures: number; locked_until: string | null }>()
   if (attempt?.locked_until && Date.parse(attempt.locked_until) > now) return 'locked'
 
   if (await passcodeMatches(passcode, expectedHash, env.APP_SECRET)) {
-    if (attempt)
-      await env.DB.prepare('DELETE FROM passcode_attempts WHERE id = ?').bind(attempt.id).run()
+    if (attempt) {
+      await env.DB.prepare('DELETE FROM passcode_attempts WHERE app_id = ? AND client_key = ?')
+        .bind(appId, clientKey)
+        .run()
+    }
     return 'ok'
   }
 
-  const resetWindow = !attempt || now - Date.parse(attempt.window_started_at) >= windowMs
-  const failures = (resetWindow ? 0 : attempt.failures) + 1
-  const windowStartedAt = new Date(
-    resetWindow ? now : Date.parse(attempt.window_started_at),
-  ).toISOString()
-  const lockedUntil = failures >= maxFailures ? new Date(now + lockMs).toISOString() : null
-  if (attempt) {
-    await env.DB.prepare(
-      'UPDATE passcode_attempts SET failures = ?, window_started_at = ?, locked_until = ? WHERE id = ?',
+  const cutoff = new Date(now - windowMs).toISOString()
+  const nowIso = new Date(now).toISOString()
+  const lockUntil = new Date(now + lockMs).toISOString()
+  const bindArgs = [cutoff, cutoff, nowIso, cutoff, maxFailures, lockUntil, appId, clientKey]
+  let bump = await env.DB.prepare(bumpSql)
+    .bind(...bindArgs)
+    .run()
+  if (bump.meta.changes === 0) {
+    const seed = await env.DB.prepare(
+      `INSERT INTO passcode_attempts (id, app_id, client_key, failures, window_started_at, locked_until)
+       VALUES (?, ?, ?, 1, ?, NULL)
+       ON CONFLICT (app_id, client_key) DO NOTHING`,
     )
-      .bind(failures, windowStartedAt, lockedUntil, attempt.id)
+      .bind(crypto.randomUUID(), appId, clientKey, nowIso)
       .run()
-  } else {
-    await env.DB.prepare(
-      'INSERT INTO passcode_attempts (id, app_id, client_key, failures, window_started_at, locked_until) VALUES (?, ?, ?, ?, ?, ?)',
-    )
-      .bind(crypto.randomUUID(), appId, clientKey, failures, windowStartedAt, lockedUntil)
-      .run()
+    if (seed.meta.changes === 0) {
+      // A concurrent request seeded the row between our UPDATE and INSERT; count
+      // this attempt against it now that the row exists.
+      bump = await env.DB.prepare(bumpSql)
+        .bind(...bindArgs)
+        .run()
+    }
   }
-  return lockedUntil ? 'locked' : 'invalid'
+
+  const state = await env.DB.prepare(
+    'SELECT locked_until FROM passcode_attempts WHERE app_id = ? AND client_key = ?',
+  )
+    .bind(appId, clientKey)
+    .first<{ locked_until: string | null }>()
+  if (state?.locked_until && Date.parse(state.locked_until) > now) return 'locked'
+  return 'invalid'
 }

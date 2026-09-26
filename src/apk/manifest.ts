@@ -144,6 +144,7 @@ export const parseAndroidManifest = (bytes: Uint8Array): ApkManifest => {
 
     if (type === RES_STRING_POOL_TYPE) getString = stringPool(bytes, cursor, headerSize, size)
     if (type === RES_XML_START_ELEMENT_TYPE) {
+      if (size < 36) fail('truncated start element')
       const strings = getString ?? fail('start element precedes string pool')
       const name = strings(u32(bytes, cursor + 20))
       const nodeAttributes = attributes(bytes, cursor, size, strings)
