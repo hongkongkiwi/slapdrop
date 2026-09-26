@@ -1,6 +1,3 @@
-import { describe, expect, it } from 'vitest'
-import { parseAndroidManifest } from '../src/apk/manifest'
-
 const encoder = new TextEncoder()
 
 const concat = (...parts: Uint8Array[]) => {
@@ -93,7 +90,15 @@ const startElement = (
   return concat(u16(0x0102), u16(16), u32(16 + body.byteLength), u32(1), u32(0xffffffff), body)
 }
 
-const binaryManifest = () => {
+export interface TestApkManifest {
+  packageName: string
+  versionName: string
+  versionCode: number
+  minSdk?: number
+  label?: string
+}
+
+const binaryManifest = (manifest: TestApkManifest) => {
   const strings = [
     'manifest',
     'uses-sdk',
@@ -103,9 +108,9 @@ const binaryManifest = () => {
     'versionCode',
     'minSdkVersion',
     'label',
-    'dev.slapdrop.fixture',
-    '1.2.3',
-    'Fixture App',
+    manifest.packageName,
+    manifest.versionName,
+    manifest.label ?? '',
   ]
   const index = (value: string) => strings.indexOf(value)
   const content = concat(
@@ -113,32 +118,90 @@ const binaryManifest = () => {
     startElement(
       index('manifest'),
       [
-        { name: index('package'), value: 'dev.slapdrop.fixture' },
-        { name: index('versionName'), value: '1.2.3' },
-        { name: index('versionCode'), value: 123 },
+        { name: index('package'), value: manifest.packageName },
+        { name: index('versionName'), value: manifest.versionName },
+        { name: index('versionCode'), value: manifest.versionCode },
       ],
       strings,
     ),
-    startElement(index('uses-sdk'), [{ name: index('minSdkVersion'), value: 23 }], strings),
-    startElement(index('application'), [{ name: index('label'), value: 'Fixture App' }], strings),
+    startElement(
+      index('uses-sdk'),
+      [{ name: index('minSdkVersion'), value: manifest.minSdk ?? 23 }],
+      strings,
+    ),
+    startElement(
+      index('application'),
+      [{ name: index('label'), value: manifest.label ?? '' }],
+      strings,
+    ),
   )
   return concat(u16(3), u16(8), u32(8 + content.byteLength), content)
 }
 
-describe('Android binary XML manifest parser', () => {
-  it('extracts literal Android manifest metadata', () => {
-    expect(parseAndroidManifest(binaryManifest())).toEqual({
-      packageName: 'dev.slapdrop.fixture',
-      versionName: '1.2.3',
-      versionCode: 123,
-      minSdkVersion: '23',
-      appLabel: 'Fixture App',
-    })
-  })
-
-  it('rejects plaintext XML', () => {
-    expect(() => parseAndroidManifest(encoder.encode('<manifest />'))).toThrow(
-      'not binary Android XML',
+/** Builds a minimal valid APK: STORED AndroidManifest.xml plus a classes.dex filler. */
+export const buildTestApk = (manifest: TestApkManifest): Uint8Array => {
+  const manifestBytes = binaryManifest(manifest)
+  const dex = encoder.encode('dex\n')
+  const locals: Uint8Array[] = []
+  const central: Uint8Array[] = []
+  let localOffset = 0
+  for (const [name, data] of [
+    ['AndroidManifest.xml', manifestBytes],
+    ['classes.dex', dex],
+  ] as const) {
+    const nameBytes = encoder.encode(name)
+    const local = concat(
+      u32(0x04034b50),
+      u16(20),
+      u16(0),
+      u16(0),
+      u16(0),
+      u16(0),
+      u32(0),
+      u32(data.byteLength),
+      u32(data.byteLength),
+      u16(nameBytes.byteLength),
+      u16(0),
+      nameBytes,
+      data,
     )
-  })
-})
+    locals.push(local)
+    central.push(
+      concat(
+        u32(0x02014b50),
+        u16(20),
+        u16(20),
+        u16(0),
+        u16(0),
+        u16(0),
+        u16(0),
+        u32(0),
+        u32(data.byteLength),
+        u32(data.byteLength),
+        u16(nameBytes.byteLength),
+        u16(0),
+        u16(0),
+        u16(0),
+        u16(0),
+        u32(0),
+        u32(localOffset),
+        nameBytes,
+      ),
+    )
+    localOffset += local.byteLength
+  }
+  const localBytes = concat(...locals)
+  const centralBytes = concat(...central)
+  return concat(
+    localBytes,
+    centralBytes,
+    u32(0x06054b50),
+    u16(0),
+    u16(0),
+    u16(locals.length),
+    u16(locals.length),
+    u32(centralBytes.byteLength),
+    u32(localBytes.byteLength),
+    u16(0),
+  )
+}

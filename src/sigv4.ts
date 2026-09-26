@@ -3,7 +3,8 @@ const encoder = new TextEncoder()
 const hex = (bytes: ArrayBuffer) =>
   [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
 
-const sha256 = async (value: string) => hex(await crypto.subtle.digest('SHA-256', encoder.encode(value)))
+const sha256 = async (value: string) =>
+  hex(await crypto.subtle.digest('SHA-256', encoder.encode(value)))
 
 const hmac = async (key: ArrayBuffer | Uint8Array, value: string) =>
   crypto.subtle.sign(
@@ -19,7 +20,11 @@ const signingKey = async (secret: string, date: string) => {
   return hmac(serviceKey, 'aws4_request')
 }
 
-const amzDate = (date: Date) => date.toISOString().replaceAll(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
+const amzDate = (date: Date) =>
+  date
+    .toISOString()
+    .replaceAll(/[-:]/g, '')
+    .replace(/\.\d{3}Z$/, 'Z')
 
 const encodeKey = (key: string) => key.split('/').map(encodeURIComponent).join('/')
 
@@ -39,6 +44,8 @@ export interface PresignR2PutOptions {
   bucket: string
   key: string
   expiresInSeconds?: number
+  /** Required immutable upload guard. The caller must send this header on PUT. */
+  ifNoneMatch?: string
   now?: Date
 }
 
@@ -50,9 +57,11 @@ export const presignR2Put = async ({
   bucket,
   key,
   expiresInSeconds = 900,
+  ifNoneMatch,
   now = new Date(),
 }: PresignR2PutOptions) => {
-  if (expiresInSeconds < 1 || expiresInSeconds > 604_800) throw new Error('expiresInSeconds must be 1–604800')
+  if (expiresInSeconds < 1 || expiresInSeconds > 604_800)
+    throw new Error('expiresInSeconds must be 1–604800')
 
   const host = `${bucket}.${accountId}.r2.cloudflarestorage.com`
   const date = amzDate(now)
@@ -66,13 +75,30 @@ export const presignR2Put = async ({
     'X-Amz-SignedHeaders': 'host',
   })
   const path = `/${encodeKey(key)}`
-  const canonicalRequest = ['PUT', path, canonicalQuery(query), `host:${host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n')
+  const headers = ifNoneMatch ? { host, 'if-none-match': ifNoneMatch } : { host }
+  const signedHeaders = Object.keys(headers).sort().join(';')
+  query.set('X-Amz-SignedHeaders', signedHeaders)
+  const canonicalHeaders = Object.entries(headers)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, value]) => `${name}:${value}\n`)
+    .join('')
+  const canonicalRequest = [
+    'PUT',
+    path,
+    canonicalQuery(query),
+    canonicalHeaders,
+    signedHeaders,
+    'UNSIGNED-PAYLOAD',
+  ].join('\n')
   const stringToSign = [
     'AWS4-HMAC-SHA256',
     date,
     credentialScope,
     await sha256(canonicalRequest),
   ].join('\n')
-  query.set('X-Amz-Signature', hex(await hmac(await signingKey(secretAccessKey, shortDate), stringToSign)))
+  query.set(
+    'X-Amz-Signature',
+    hex(await hmac(await signingKey(secretAccessKey, shortDate), stringToSign)),
+  )
   return new URL(`https://${host}${path}?${canonicalQuery(query)}`)
 }

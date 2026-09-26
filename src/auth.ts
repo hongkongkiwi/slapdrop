@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from 'hono'
+import { timingSafeEqualString } from './access'
 import type { Env } from './env'
 
 export type Variables = { uploader: string }
@@ -14,7 +15,9 @@ export const uploaderAuth: MiddlewareHandler<{ Bindings: Env; Variables: Variabl
   next,
 ) => {
   const token = c.req.header('authorization')?.match(/^Bearer (.+)$/)?.[1]
-  const uploader = token && tokens(c.env.UPLOAD_TOKENS).find((candidate) => candidate.token === token)
+  const uploader =
+    token &&
+    tokens(c.env.UPLOAD_TOKENS).find((candidate) => timingSafeEqualString(candidate.token, token))
   if (!uploader) return c.json({ error: 'Unauthorized' }, 401)
   c.set('uploader', uploader.label)
   await next()

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { listZipEntries, readZipEntry, type ByteSource } from '../src/apk/zip'
+import { type ByteSource, listZipEntries, readZipEntry } from '../src/apk/zip'
 
 const encoder = new TextEncoder()
 
@@ -36,7 +36,7 @@ interface TestEntry {
   compressed?: boolean
 }
 
-const testZip = async (entries: TestEntry[]) => {
+const testZip = async (entries: TestEntry[], overrides: { directorySize?: number } = {}) => {
   const locals: Uint8Array[] = []
   const central: Uint8Array[] = []
   let localOffset = 0
@@ -97,7 +97,7 @@ const testZip = async (entries: TestEntry[]) => {
     u16(0),
     u16(entries.length),
     u16(entries.length),
-    u32(centralBytes.byteLength),
+    u32(overrides.directorySize ?? centralBytes.byteLength),
     u32(localBytes.byteLength),
     u16(0),
   )
@@ -119,18 +119,32 @@ describe('APK ZIP reader', () => {
     expect(entries.map((entry) => entry.name)).toEqual(['classes.dex', 'AndroidManifest.xml'])
 
     const manifest = entries.find((entry) => entry.name === 'AndroidManifest.xml')
-    expect(manifest).toBeDefined()
-    expect(new TextDecoder().decode(await readZipEntry(source(zip), manifest!))).toBe('binary-manifest')
+    if (!manifest) throw new Error('AndroidManifest.xml entry missing from test zip')
+    expect(new TextDecoder().decode(await readZipEntry(source(zip), manifest))).toBe(
+      'binary-manifest',
+    )
   })
 
   it('inflates a DEFLATE-compressed manifest entry', async () => {
-    const zip = await testZip([{ name: 'AndroidManifest.xml', content: 'compressed manifest', compressed: true }])
+    const zip = await testZip([
+      { name: 'AndroidManifest.xml', content: 'compressed manifest', compressed: true },
+    ])
     const [manifest] = await listZipEntries(source(zip))
+    if (!manifest) throw new Error('test zip has no entries')
 
-    expect(new TextDecoder().decode(await readZipEntry(source(zip), manifest!))).toBe('compressed manifest')
+    expect(new TextDecoder().decode(await readZipEntry(source(zip), manifest))).toBe(
+      'compressed manifest',
+    )
   })
 
   it('rejects archives without an EOCD record', async () => {
-    await expect(listZipEntries(source(encoder.encode('not a zip')))).rejects.toThrow('EOCD record')
+    await expect(listZipEntries(source(encoder.encode('not a zip')))).rejects.toThrow('EOCD')
+  })
+
+  it('rejects archives declaring an oversized central directory', async () => {
+    const zip = await testZip([{ name: 'a.txt', content: 'a' }], {
+      directorySize: 17 * 1024 * 1024,
+    })
+    await expect(listZipEntries(source(zip))).rejects.toThrow('central directory too large')
   })
 })

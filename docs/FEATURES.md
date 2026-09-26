@@ -7,7 +7,8 @@ Cloudflare Worker (Hono + R2 + D1). Audience: testers without Play Store access
 ## Distribution (tester-facing, trilingual EN / 繁體中文 / 简体中文)
 
 - **F1** Install page per app `GET /a/:slug` — latest build card: version,
-  size, upload date, minimum Android, package name
+  size, upload date, download count, release notes (package name / min Android
+  available via API only — rendering them needs persisted columns)
 - **F2** Install button → direct APK download `GET /d/:buildId.apk` (correct
   MIME type, `Content-Disposition` attachment, friendly filename)
 - **F3** QR code on the install page, generated client-side (no external APIs —
@@ -17,7 +18,11 @@ Cloudflare Worker (Hono + R2 + D1). Audience: testers without Play Store access
 - **F5** Version history with per-version download links
 - **F6** Sideload guide accordion (enable "install unknown apps", per-OEM hints)
 - **F7** Optional per-app passcode gate (SHA-256 + pepper, HMAC-signed cookie, 24h)
-- **F8** Locale auto-detected via `Accept-Language`, manual toggle persisted
+- **F8** Locale auto-detected via `Accept-Language`, manual toggle via `?lang=`
+  links (per-request, not persisted)
+- **F24** HTTP Range downloads on `/d/` (single `bytes=` range; suffix ranges;
+  416 with `Content-Range: bytes */size` when unsatisfiable; only full
+  downloads increment the counter)
 
 ## Upload & management (Bearer token auth)
 
@@ -39,8 +44,8 @@ Cloudflare Worker (Hono + R2 + D1). Audience: testers without Play Store access
 ## Upload UI
 
 - **F17** `/upload` single page: token stored in localStorage, create/pick app,
-  drag-drop APK with progress (intent → PUT → complete), result card with
-  share URL + QR
+  file-picker APK upload (intent → PUT → complete) with status line and
+  share-URL result (drag-drop, progress bar, and result QR not built yet)
 
 ## CI integrations
 

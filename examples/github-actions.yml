@@ -1,0 +1,23 @@
+name: Distribute Android APK
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Build your APK here. This example assumes the file already exists.
+      - id: slapdrop
+        uses: your-org/slapdrop/ci/upload@main
+        with:
+          api-url: ${{ vars.SLAPDROP_URL }}
+          token: ${{ secrets.SLAPDROP_TOKEN }}
+          app-slug: my-android-app
+          app-name: My Android App
+          apk-path: path/to/app-release.apk
+          notes: ${{ github.ref_name }}
+          commit-sha: ${{ github.sha }}
+      - run: echo "Share this link: ${{ steps.slapdrop.outputs.share-url }}"
