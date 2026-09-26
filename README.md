@@ -110,7 +110,9 @@ Public:
 
 - `GET /a/:slug` — latest release, QR, install guide
 - `GET /a/:slug/v/:versionCode` — fixed release page
-- `GET /d/:buildId.apk` — APK download (passcode-gated if configured)
+- `GET /d/:buildId.apk` — APK download (passcode-gated if configured); supports
+  single HTTP `Range` requests for resumable downloads; only full downloads
+  count toward the download counter
 
 ## Checks
 

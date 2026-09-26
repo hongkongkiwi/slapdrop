@@ -58,4 +58,32 @@ describe('public installation pages', () => {
     expect(disposition).toContain('1.0_evil')
     expect(disposition).not.toContain('evil"')
   })
+
+  it('supports range requests and counts only full downloads', async () => {
+    const { buildId } = await seedRelease()
+    const base = `https://example.com/d/${buildId}.apk`
+
+    const partial = await SELF.fetch(base, { headers: { range: 'bytes=1-2' } })
+    expect(partial.status).toBe(206)
+    expect(partial.headers.get('content-range')).toBe('bytes 1-2/4')
+    expect(new Uint8Array(await partial.arrayBuffer())).toHaveLength(2)
+
+    const suffix = await SELF.fetch(base, { headers: { range: 'bytes=-1' } })
+    expect(suffix.status).toBe(206)
+    expect(suffix.headers.get('content-range')).toBe('bytes 3-3/4')
+
+    const unsatisfiable = await SELF.fetch(base, { headers: { range: 'bytes=10-20' } })
+    expect(unsatisfiable.status).toBe(416)
+    expect(unsatisfiable.headers.get('content-range')).toBe('bytes */4')
+
+    const full = await SELF.fetch(base)
+    expect(full.status).toBe(200)
+    expect(full.headers.get('accept-ranges')).toBe('bytes')
+    expect(new Uint8Array(await full.arrayBuffer())).toHaveLength(4)
+
+    const count = await env.DB.prepare('SELECT downloads FROM builds WHERE id = ?')
+      .bind(buildId)
+      .first<{ downloads: number }>()
+    expect(count?.downloads).toBe(1)
+  })
 })

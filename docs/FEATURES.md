@@ -20,6 +20,9 @@ Cloudflare Worker (Hono + R2 + D1). Audience: testers without Play Store access
 - **F7** Optional per-app passcode gate (SHA-256 + pepper, HMAC-signed cookie, 24h)
 - **F8** Locale auto-detected via `Accept-Language`, manual toggle via `?lang=`
   links (per-request, not persisted)
+- **F24** HTTP Range downloads on `/d/` (single `bytes=` range; suffix ranges;
+  416 with `Content-Range: bytes */size` when unsatisfiable; only full
+  downloads increment the counter)
 
 ## Upload & management (Bearer token auth)
 
