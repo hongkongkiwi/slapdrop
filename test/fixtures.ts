@@ -25,6 +25,11 @@ const u32 = (value: number) => {
 const utf8Length = (length: number) =>
   length < 0x80 ? new Uint8Array([length]) : new Uint8Array([0x80 | (length >> 8), length & 0xff])
 
+const deflateRaw = async (bytes: Uint8Array) => {
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'))
+  return new Uint8Array(await new Response(stream).arrayBuffer())
+}
+
 const stringPool = (strings: string[]) => {
   const offsets: Uint8Array[] = []
   const values: Uint8Array[] = []
@@ -138,32 +143,50 @@ const binaryManifest = (manifest: TestApkManifest) => {
   return concat(u16(3), u16(8), u32(8 + content.byteLength), content)
 }
 
-/** Builds a minimal valid APK: STORED AndroidManifest.xml plus a classes.dex filler. */
-export const buildTestApk = (manifest: TestApkManifest): Uint8Array => {
+/** Builds a minimal valid APK (STORED classes.dex, optional DEFLATE manifest). */
+export const buildTestApk = async (
+  manifest: TestApkManifest,
+  options: { compressManifest?: boolean } = {},
+): Promise<Uint8Array> => {
   const manifestBytes = binaryManifest(manifest)
   const dex = encoder.encode('dex\n')
+  const manifestEntry = options.compressManifest
+    ? {
+        name: 'AndroidManifest.xml',
+        method: 8,
+        stored: await deflateRaw(manifestBytes),
+        original: manifestBytes,
+      }
+    : {
+        name: 'AndroidManifest.xml',
+        data: manifestBytes,
+        method: 0,
+        stored: manifestBytes,
+        original: manifestBytes,
+      }
+  const entries = [
+    manifestEntry,
+    { name: 'classes.dex', data: dex, method: 0, stored: dex, original: dex },
+  ]
   const locals: Uint8Array[] = []
   const central: Uint8Array[] = []
   let localOffset = 0
-  for (const [name, data] of [
-    ['AndroidManifest.xml', manifestBytes],
-    ['classes.dex', dex],
-  ] as const) {
-    const nameBytes = encoder.encode(name)
+  for (const entry of entries) {
+    const nameBytes = encoder.encode(entry.name)
     const local = concat(
       u32(0x04034b50),
       u16(20),
       u16(0),
-      u16(0),
+      u16(entry.method),
       u16(0),
       u16(0),
       u32(0),
-      u32(data.byteLength),
-      u32(data.byteLength),
+      u32(entry.stored.byteLength),
+      u32(entry.original.byteLength),
       u16(nameBytes.byteLength),
       u16(0),
       nameBytes,
-      data,
+      entry.stored,
     )
     locals.push(local)
     central.push(
@@ -172,12 +195,12 @@ export const buildTestApk = (manifest: TestApkManifest): Uint8Array => {
         u16(20),
         u16(20),
         u16(0),
-        u16(0),
+        u16(entry.method),
         u16(0),
         u16(0),
         u32(0),
-        u32(data.byteLength),
-        u32(data.byteLength),
+        u32(entry.stored.byteLength),
+        u32(entry.original.byteLength),
         u16(nameBytes.byteLength),
         u16(0),
         u16(0),
@@ -198,8 +221,8 @@ export const buildTestApk = (manifest: TestApkManifest): Uint8Array => {
     u32(0x06054b50),
     u16(0),
     u16(0),
-    u16(locals.length),
-    u16(locals.length),
+    u16(entries.length),
+    u16(entries.length),
     u32(centralBytes.byteLength),
     u32(localBytes.byteLength),
     u16(0),

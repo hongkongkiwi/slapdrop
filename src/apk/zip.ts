@@ -77,6 +77,7 @@ const parseZip64Extra = (
       let extraCursor = dataStart
       const value = (required: boolean) => {
         if (!required) return undefined
+        if (extraCursor + 8 > dataEnd) fail('ZIP64 extra field truncated')
         const result = u64(bytes, extraCursor)
         extraCursor += 8
         return result
@@ -93,12 +94,23 @@ const parseZip64Extra = (
 }
 
 const centralDirectoryFromTail = async (source: ByteSource): Promise<CentralDirectoryLocation> => {
-  const tailOffset = Math.max(0, source.size - MAX_EOCD_WINDOW)
+  // 20 extra bytes keep the ZIP64 locator (which sits immediately before the
+  // EOCD) inside the window even when a max-length comment precedes the EOCD.
+  const tailOffset = Math.max(0, source.size - MAX_EOCD_WINDOW - 20)
   const tail = await source.read(tailOffset, source.size - tailOffset)
-  const eocdOffset = findSignatureBackwards(tail, EOCD_SIGNATURE)
-  if (eocdOffset < 0 || eocdOffset + 22 > tail.byteLength) fail('EOCD record not found')
-  if (eocdOffset + 22 + u16(tail, eocdOffset + 20) !== tail.byteLength)
-    fail('invalid EOCD comment length')
+  // Walk candidates downward: the first 0x06054b50 found from the end may sit
+  // inside a comment whose own length then fails to reach EOF (PK APPNOTE rule).
+  let eocdOffset = findSignatureBackwards(tail, EOCD_SIGNATURE)
+  while (eocdOffset >= 0) {
+    if (
+      eocdOffset + 22 <= tail.byteLength &&
+      eocdOffset + 22 + u16(tail, eocdOffset + 20) === tail.byteLength
+    ) {
+      break
+    }
+    eocdOffset = findSignatureBackwards(tail, EOCD_SIGNATURE, eocdOffset - 1)
+  }
+  if (eocdOffset < 0) fail('EOCD record not found')
 
   const entries = u16(tail, eocdOffset + 10)
   const size = u32(tail, eocdOffset + 12)
@@ -155,6 +167,9 @@ export const listZipEntries = async (source: ByteSource): Promise<ZipEntry[]> =>
     const uncompressedSize = zip64.uncompressedSize ?? uncompressedRaw
     const compressedSize = zip64.compressedSize ?? compressedRaw
     const localHeaderOffset = zip64.localHeaderOffset ?? localOffsetRaw
+    if (localHeaderOffset < 0 || localHeaderOffset + 30 > source.size) {
+      fail(`entry ${textDecoder.decode(bytes.slice(nameStart, extraStart))} outside archive`)
+    }
     entries.push({
       name: textDecoder.decode(bytes.slice(nameStart, extraStart)),
       compressionMethod: u16(bytes, cursor + 10),

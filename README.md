@@ -98,6 +98,10 @@ overwriting an already-validated APK.
 
 All `/api/*` routes require `Authorization: Bearer <upload-token>`.
 
+Every upload token is equally privileged: any token can list all apps and
+delete any app or build, including apps created by other tokens. Treat tokens
+as operator credentials and keep the token set small (see SECURITY.md).
+
 - `POST /api/apps` — create app (`slug`, `name`, optional `passcode`)
 - `GET /api/apps` — list apps
 - `POST /api/apps/:slug/builds/intent` — receive presigned direct R2 upload URL
